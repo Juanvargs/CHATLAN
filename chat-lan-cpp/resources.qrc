@@ -1,0 +1,4 @@
+<RCC><qresource prefix="/">
+  <file alias="logo.png">assets/chat-lan-logo.png</file>
+  <file alias="logo.svg">assets/chat-lan-logo.svg</file>
+</qresource></RCC>

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Chat LAN C++
+Comment=Chat para la red local
+Exec=ChatLANCpp
+Icon=chat-lan-cpp
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=ChatLANCpp

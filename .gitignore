@@ -1,0 +1,29 @@
+# Compilaciones y paquetes generados
+**/build/
+**/dist/
+**/.toolchain/
+**/local-data/
+SERVER_JP/chat-lan-go
+*.deb
+*.tar.gz
+*.o
+*.a
+
+# Datos, identidades y configuración privada de cada instalación
+*.key
+*.pem
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+settings.json
+connection.json
+.env
+.env.*
+
+# Archivos temporales de Python y editores
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.swp

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Administrar Chat LAN Go
+Comment=Panel local del servidor Chat LAN Go
+Exec=chat-lan-admin-go
+Icon=chat-lan-go
+Categories=Network;InstantMessaging;
+Terminal=false

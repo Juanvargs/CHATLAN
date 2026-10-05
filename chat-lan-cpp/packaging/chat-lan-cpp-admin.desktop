@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Administrar Chat LAN C++
+Comment=Control del servidor y las cuentas
+Exec=chat-lan-admin-gui-cpp
+Icon=chat-lan-cpp
+Terminal=false
+Categories=Network;System;
+StartupWMClass=ChatLANCppAdmin

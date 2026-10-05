@@ -1,0 +1,14 @@
+[Unit]
+Description=Servidor Chat LAN Go
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/chat-lan-go server --init
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

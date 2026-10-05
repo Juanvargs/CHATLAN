@@ -1,0 +1,14 @@
+[Unit]
+Description=Servidor Chat LAN C++
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/chat-lan-server-cpp --init
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
