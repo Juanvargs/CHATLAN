@@ -44,8 +44,11 @@ const userCols = "code,id,public,name,status,online,disconnect_requested,delete_
 // scanUser convierte una fila SQL en el modelo User.
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
+	// SQLite representa booleanos como 0/1; se reciben primero como enteros.
 	var online, disconnect, del int
+	// Scan asigna cada columna en el mismo orden declarado por userCols.
 	e := row.Scan(&u.Code, &u.ID, &u.Public, &u.Name, &u.Status, &online, &disconnect, &del)
+	// Convierte los indicadores numéricos al tipo booleano del modelo Go.
 	u.Online = online != 0
 	u.Disconnect = disconnect != 0
 	u.Delete = del != 0
@@ -60,18 +63,22 @@ func openStore(path string, auto bool) (*Store, error) {
 	if e != nil {
 		return nil, e
 	}
+	// Una sola conexión ordena escrituras para esta base SQLite local.
 	db.SetMaxOpenConns(1)
+	// Crea tablas si aún no existen, sin borrar registros al reiniciar.
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS clients (code INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,public TEXT UNIQUE NOT NULL,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending')`,
 		`CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id TEXT NOT NULL,sender TEXT NOT NULL,target TEXT NOT NULL,text TEXT NOT NULL,time TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS deleted_clients (public TEXT PRIMARY KEY,id TEXT NOT NULL,code INTEGER NOT NULL,name TEXT NOT NULL,deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 	}
 	for _, q := range schema {
+		// Ejecuta cada definición de tabla.
 		if _, e = db.Exec(q); e != nil {
 			db.Close()
 			return nil, e
 		}
 	}
+	// Migra bases anteriores agregando columnas nuevas sin perder sus filas.
 	for col, decl := range map[string]string{"online": "INTEGER NOT NULL DEFAULT 0", "last_seen": "TEXT", "disconnect_requested": "INTEGER NOT NULL DEFAULT 0", "delete_requested": "INTEGER NOT NULL DEFAULT 0"} {
 		var count int
 		rows, e := db.Query("PRAGMA table_info(clients)")
@@ -79,6 +86,7 @@ func openStore(path string, auto bool) (*Store, error) {
 			return nil, e
 		}
 		for rows.Next() {
+			// PRAGMA table_info enumera las columnas existentes en clients.
 			var cid, notnull, pk int
 			var name, typ string
 			var def sql.NullString
@@ -94,6 +102,7 @@ func openStore(path string, auto bool) (*Store, error) {
 			return nil, e
 		}
 		if count == 0 {
+			// ALTER TABLE se ejecuta únicamente si esa columna todavía no existe.
 			if _, e = db.Exec("ALTER TABLE clients ADD COLUMN " + col + " " + decl); e != nil {
 				return nil, e
 			}
@@ -137,6 +146,7 @@ func (s *Store) register(public, name string) (User, error) {
 		return User{}, e
 	}
 	name = strings.TrimSpace(name)
+	// Limpia espacios externos y limita el nombre antes de iniciar la escritura.
 	if n := utf8.RuneCountInString(name); n < 1 || n > 32 {
 		return User{}, errors.New("nombre inválido")
 	}
@@ -150,13 +160,17 @@ func (s *Store) register(public, name string) (User, error) {
 		return User{}, e
 	}
 	defer tx.Rollback()
+	// El rollback diferido cancela cambios si la función sale antes del Commit final.
 	var tomb User
 	e = tx.QueryRow("SELECT code,id,public,name FROM deleted_clients WHERE public=?", public).Scan(&tomb.Code, &tomb.ID, &tomb.Public, &tomb.Name)
+	// Conserva la lápida de una cuenta eliminada para impedir que la misma clave vuelva a entrar.
 	if e == nil {
+		// Devuelve el estado eliminado y evita registrar otra cuenta con la misma clave.
 		tomb.Status = "deleted"
 		return tomb, tx.Commit()
 	}
 	if e != sql.ErrNoRows {
+		// Un error SQL es distinto a que no exista una cuenta con esta clave.
 		return User{}, e
 	}
 	u, e := scanUser(tx.QueryRow("SELECT "+userCols+" FROM clients WHERE public=?", public))
@@ -168,6 +182,7 @@ func (s *Store) register(public, name string) (User, error) {
 		return User{}, e
 	}
 	if u.ID != "" {
+		// La clave ya existe: se conserva su ID y estado en lugar de crear una cuenta duplicada.
 		if s.autoApprove && u.Status == "pending" && approved < 10 {
 			_, e = tx.Exec("UPDATE clients SET status='approved' WHERE id=?", u.ID)
 			if e != nil {
@@ -182,12 +197,15 @@ func (s *Store) register(public, name string) (User, error) {
 		return User{}, e
 	}
 	if pending >= 30 {
+		// Rechaza solicitudes nuevas cuando la cola pendiente alcanzó su límite.
 		return User{}, errors.New("demasiadas solicitudes pendientes")
 	}
 	status := "pending"
+	// Solo aprueba automáticamente si está activado y todavía hay menos de diez aprobadas.
 	if s.autoApprove && approved < 10 {
 		status = "approved"
 	}
+	// Si no se cumplen ambas condiciones, la cuenta se crea pendiente de revisión.
 	id, e := newUUID()
 	if e != nil {
 		return User{}, e
@@ -261,6 +279,7 @@ func (s *Store) setStatus(id, status string) error {
 		return e
 	}
 	if status == "approved" && u.Status != "approved" {
+		// Cuenta de nuevo bajo transacción para no superar el máximo de autorizados.
 		n, e := count(tx, "approved")
 		if e != nil {
 			return e
@@ -318,8 +337,10 @@ func (s *Store) delete(id string, final bool) error {
 		return e
 	}
 	if u.Online && !final {
+		// Una sesión activa se borra al cerrar; el monitor procesa esta marca.
 		_, e = tx.Exec("UPDATE clients SET delete_requested=1 WHERE id=?", id)
 	} else {
+		// Una cuenta desconectada se elimina en esta misma transacción.
 		e = deleteRow(tx, u)
 	}
 	if e != nil {
@@ -347,6 +368,7 @@ func (s *Store) recover(id, public string) error {
 		return e
 	}
 	if otherID != "" {
+		// Solo se puede liberar una clave asociada a una solicitud que sigue pendiente.
 		if status != "pending" {
 			return errors.New("la clave pertenece a otra identidad")
 		}
@@ -381,6 +403,7 @@ func (s *Store) history(id string) ([]Message, error) {
 		out = append(out, m)
 	}
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		// La consulta sale de más nuevo a más antiguo; invierte el orden para la vista.
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, rows.Err()

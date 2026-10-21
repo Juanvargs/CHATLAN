@@ -20,6 +20,7 @@ Connection::Connection(Identity &value, QObject *parent) : QObject(parent), iden
         else if (authenticated) { try { send(chat::event("ping")); } catch(const std::exception &e) { emit status(e.what()); socket.abort(); } }
     });
     connect(&socket,&QSslSocket::encrypted,this,[this] {
+        // TLS ya negoció; ahora compara el certificado con la huella de confianza del perfil.
         auto actual = QString::fromLatin1(socket.peerCertificate().digest(QCryptographicHash::Sha256).toHex());
         if (actual != fingerprint) { running = false; emit status("Huella del servidor incorrecta"); socket.abort(); return; }
         lastRx = QDateTime::currentMSecsSinceEpoch();
@@ -39,6 +40,7 @@ void Connection::start(const QString &address, quint16 tcpPort, const QString &c
     auto cert = QSslCertificate(readFile(certificate)); if(cert.isNull()) throw std::runtime_error("Certificado inválido");
     fingerprint = QString::fromLatin1(cert.digest(QCryptographicHash::Sha256).toHex());
     auto config = QSslConfiguration::defaultConfiguration(); config.setCaCertificates({cert});
+        // No desactiva la validación del certificado y exige TLS 1.2 como mínimo.
     config.setPeerVerifyMode(QSslSocket::VerifyPeer); config.setProtocol(QSsl::TlsV1_2OrLater);
     socket.setSslConfiguration(config); socket.setPeerVerifyName("localhost"); socket.setReadBufferSize(131080);
     running = true; delay = 1; discover();
@@ -90,15 +92,20 @@ void Connection::read() {
         while(socket.bytesAvailable()) for(auto packet : decoder.feed(socket.read(65536))) {
             lastRx = QDateTime::currentMSecsSinceEpoch(); auto kind = packet["type"].toString();
             if(kind=="challenge") {
+                // El servidor debe repetir la huella fijada antes de firmar su reto.
                 if(packet["fingerprint"].toString()!=fingerprint) throw std::runtime_error("Servidor incorrecto");
+                // La privada nunca sale del perfil; solo se envía la firma resultante.
                 auto signature = identity.sign(proofPayload(packet["nonce"].toString(),identity.publicKey(),fingerprint));
                 send(chat::event("proof",{{"signature",QString::fromLatin1(signature.toBase64())}}));
             } else if(kind=="authenticated") {
+                // Detiene temporizadores de conexión y empieza el keepalive de la sesión.
                 authenticated=true; delay=1; retry.stop(); deadline.stop(); heartbeat.start();
                 emit online(true); emit status("Conectado");
             } else if(kind=="message") {
+                // Confirma a la aplicación que recibió el evento; no representa lectura humana.
                 send(chat::event("received",{{"sender",packet["sender"].toObject()["id"]},{"message_id",packet["message_id"]}}));
             } else if(QStringList{"registration_pending","revoked","replaced","admin_disconnected","account_deleted"}.contains(kind)) {
+                // Estos estados requieren intervención o una reconexión explícita.
                 running=false; retry.stop(); deadline.stop(); heartbeat.stop();
                 const QHash<QString,QString> labels{{"registration_pending","Alta pendiente. Consulta al administrador y vuelve a conectar."},{"revoked","Identidad revocada o clave reemplazada."},{"replaced","Este perfil se abrió en otra instancia."},{"admin_disconnected","El administrador desconectó esta sesión."},{"account_deleted","El administrador eliminó esta cuenta."}};
                 emit status(labels.value(kind));
@@ -110,6 +117,7 @@ void Connection::read() {
 void Connection::disconnected() {
     authenticated=false; emit online(false); heartbeat.stop(); deadline.stop();
     if(running && !retry.isActive()) {
+        // Reintenta con demora creciente y un pequeño componente aleatorio.
         discover(); retry.start(delay*1000+QRandomGenerator::global()->bounded(1000));
         emit status(QString("Desconectado. Reintentando en %1 s…").arg(delay)); delay=qMin(30,delay*2);
     }

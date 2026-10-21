@@ -134,9 +134,11 @@ void MessageView::scrollToBottom() {
 QString MessageView::plainText() const { QString result; for(auto packet:pending) result+=packet["text"].toString()+"\n"; return result; }
 // Crea controles, conecta señales y carga identidad, historial y preferencias del perfil.
 Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profile(path), identity(path), connection(identity,this) {
+    // Cada instancia usa su perfil separado para mantener identidad y conexión propias.
     privateDir(profile); setWindowTitle("Chat LAN"); setWindowIcon(QIcon(":/logo.png")); resize(1180,760);
     config=readJson(profile+"/connection.json");
     if(config.isEmpty()) {
+        // Busca valores iniciales junto a los datos, el ejecutable y los recursos empaquetados.
         QString defaults=dataRoot()+"/client-default.json";
         if(!QFile::exists(defaults)) {
             defaults=QCoreApplication::applicationDirPath()+"/client-default.json";
@@ -144,16 +146,19 @@ Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profi
         }
         if(QFile::exists(defaults)) config=readJson(defaults);
         if(config.isEmpty() && QFile::exists(":/client-default.json")) { defaults=":/client-default.json"; config=readJson(defaults); }
+        // Sin archivo de distribución, usa conexión local y puertos estándar.
         if(config.isEmpty()) config={{"host","127.0.0.1"},{"port",8765},{"discovery_port",8764}};
         if(config["certificate"].toString().isEmpty() && QFile::exists(defaultServerDir()+"/server.pem")) config["certificate"]=defaultServerDir()+"/server.pem";
         auto certificate=config["certificate"].toString();
         if(!certificate.isEmpty() && !certificate.startsWith(":") && QFileInfo(certificate).isRelative()) certificate=QFileInfo(defaults).absoluteDir().filePath(certificate);
+        // Copia solo el certificado público al perfil para que siga disponible al moverlo.
         if(!certificate.isEmpty() && QFile::exists(certificate)) { writeFile(profile+"/server.pem",readFile(certificate),false); config["certificate"]=profile+"/server.pem"; }
         if(QFile::exists(profile+"/profile-name")) config["name"]=QString::fromUtf8(readFile(profile+"/profile-name")).trimmed();
         saveConfig();
     }
     auto root=new QWidget; setCentralWidget(root);
     auto layout=new QHBoxLayout(root); layout->setContentsMargins(0,0,0,0); layout->setSpacing(0);
+    // La barra izquierda contiene marca y avatar; el divisor separa lista y conversación.
     auto rail=new QWidget; rail->setFixedWidth(62); rail->setStyleSheet("background:#202c33;border-right:1px solid #2a3942;");
     auto railLayout=new QVBoxLayout(rail); railLayout->setContentsMargins(8,20,8,14); railLayout->setSpacing(12);
     auto railBrand=new QLabel; railBrand->setPixmap(QPixmap(":/logo.png").scaled(42,42,Qt::KeepAspectRatio,Qt::SmoothTransformation)); railBrand->setAlignment(Qt::AlignCenter); railBrand->setToolTip("Chat LAN"); railLayout->addWidget(railBrand);
@@ -161,6 +166,7 @@ Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profi
     selfAvatar=new QLabel; styleAvatar(selfAvatar,config["name"].toString(),42); selfAvatar->setToolTip("Tu perfil"); railLayout->addWidget(selfAvatar,0,Qt::AlignHCenter); layout->addWidget(rail);
     auto splitter=new QSplitter(Qt::Horizontal); splitter->setChildrenCollapsible(false); layout->addWidget(splitter,1);
 
+    // Panel lateral: título, búsqueda, lista de chats y estado de la cuenta.
     auto sidebar=new QWidget; sidebar->setMinimumWidth(295); sidebar->setMaximumWidth(480); sidebar->setStyleSheet("background:#111b21;");
     auto sideLayout=new QVBoxLayout(sidebar); sideLayout->setContentsMargins(0,0,0,0); sideLayout->setSpacing(0);
     auto sideHeader=new QWidget; sideHeader->setStyleSheet("background:#202c33;"); auto sideHeaderLayout=new QHBoxLayout(sideHeader); sideHeaderLayout->setContentsMargins(20,13,18,13);
@@ -175,6 +181,7 @@ Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profi
     name->setFixedHeight(36); connectButton->setFixedHeight(36);
     state=new QLabel("Elige tu usuario y pulsa Conectar."); state->setObjectName("connectionStatus"); state->setWordWrap(true); state->setMaximumHeight(34); state->setStyleSheet("color:#aebac1;font-size:11px;"); accountLayout->addWidget(state); sideLayout->addWidget(account); splitter->addWidget(sidebar);
 
+    // Panel derecho: encabezado del chat, mensajes y campo para redactar.
     auto chat=new QWidget; chat->setStyleSheet("background:#0b141a;"); auto chatLayout=new QVBoxLayout(chat); chatLayout->setContentsMargins(0,0,0,0); chatLayout->setSpacing(0);
     auto chatHeader=new QWidget; chatHeader->setFixedHeight(66); chatHeader->setStyleSheet("background:#202c33;"); auto chatHeaderLayout=new QHBoxLayout(chatHeader); chatHeaderLayout->setContentsMargins(18,8,18,8); chatHeaderLayout->setSpacing(12);
     chatAvatar=new QLabel; styleAvatar(chatAvatar,"Sala general",42,true); chatHeaderLayout->addWidget(chatAvatar);
@@ -187,6 +194,7 @@ Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profi
     splitter->addWidget(chat); splitter->setSizes({350,830}); splitter->setStretchFactor(1,1);
     tray=new QSystemTrayIcon(QIcon(":/logo.png"),this); tray->setToolTip("Chat LAN");
     auto menu=new QMenu(this); menu->addAction("Mostrar Chat LAN",this,&QWidget::showNormal); menu->addAction("Salir",this,&QWidget::close); tray->setContextMenu(menu); if(QSystemTrayIcon::isSystemTrayAvailable()) tray->show();
+    // Une acciones de botones y selección de chat con las funciones de la ventana.
     connect(connectButton,&QPushButton::clicked,this,[this] { if(connection.isRunning() || connection.isAuthenticated()) { connection.stop(); state->setText("Desconectado. Identidad conservada."); } else connectChat(); });
     connect(sendButton,&QPushButton::clicked,this,&Window::sendMessage); connect(text,&QLineEdit::returnPressed,this,&Window::sendMessage);
     connect(targets,&QListWidget::currentItemChanged,this,[this] { markConversationRead(); renderHistory(); });
@@ -202,15 +210,18 @@ void Window::saveConfig() { writeJson(profile+"/connection.json",config); }
 // Inicia o detiene la conexión según el estado visible del cliente.
 void Window::connectChat() {
     try {
+        // El usuario debe tener un nombre antes de que el perfil intente autenticarse.
         if(name->text().trimmed().isEmpty()) throw std::runtime_error("Escribe tu nombre");
         auto certificate=config["certificate"].toString();
         if(certificate.isEmpty() || !QFile::exists(certificate)) {
+            // En el primer uso solicita certificado público y una IP inicial al usuario.
             certificate=QFileDialog::getOpenFileName(this,"Certificado público del servidor",QDir::homePath(),"Certificado (*.pem)"); if(certificate.isEmpty()) return;
             bool ok=false; auto host=QInputDialog::getText(this,"Servidor LAN","IP inicial del servidor:",QLineEdit::Normal,config["host"].toString("127.0.0.1"),&ok); if(!ok || host.trimmed().isEmpty()) return;
             writeFile(profile+"/server.pem",readFile(certificate),false); config["certificate"]=profile+"/server.pem"; config["host"]=host.trimmed();
             auto seed=config; seed.remove("name"); seed.remove("client"); seed["certificate"]=certificate; writeJson(dataRoot()+"/client-default.json",seed);
         }
         config["name"]=name->text().trimmed(); saveConfig();
+        // Lee ambos puertos de la configuración y evita intentar valores fuera de rango.
         auto port=config["port"].toInt(8765), udp=config["discovery_port"].toInt(8764); if(port<1||port>65535||udp<1||udp>65535) throw std::runtime_error("Puerto inválido");
         connection.start(config["host"].toString("127.0.0.1"),port,config["certificate"].toString(),config["name"].toString(),udp); connectButton->setText("Cancelar conexión");
     } catch(const std::exception &e) { state->setText(e.what()); QMessageBox::warning(this,"Conexión",e.what()); }

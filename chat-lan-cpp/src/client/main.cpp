@@ -7,7 +7,7 @@
 
 // Inicia el cliente gráfico o imprime la clave pública para el modo de recuperación.
 int main(int argc,char **argv) {
-    // Public-key mode does not require a display server.
+    // El modo de clave pública puede ejecutarse sin abrir la interfaz gráfica.
     bool keyMode=false; for(int i=1;i<argc;++i) if(QString::fromLocal8Bit(argv[i])=="--public-key") keyMode=true;
     if(keyMode) {
         QCoreApplication app(argc,argv); QCommandLineParser p; p.addHelpOption(); p.addOptions({{"profile","Carpeta de perfil","ruta",chat::dataRoot()+"/client"},{"public-key","Mostrar pública"}}); p.process(app);

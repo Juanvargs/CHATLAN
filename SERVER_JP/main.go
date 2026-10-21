@@ -17,9 +17,11 @@ import (
 
 // serverSettings contiene las opciones persistentes de ejecución.
 type serverSettings struct {
+	// Host y puertos controlan en qué direcciones escucha el servidor.
 	Host          string `json:"host"`
 	Port          int    `json:"port"`
 	DiscoveryPort int    `json:"discovery_port"`
+	// Allow limita quién se conecta; AutoApprove decide el estado inicial de nuevas cuentas.
 	Allow         string `json:"allow"`
 	AutoApprove   *bool  `json:"auto_approve"`
 }
@@ -27,13 +29,16 @@ type serverSettings struct {
 // readServerSettings carga settings.json; si no existe, deja que se usen los valores predeterminados.
 func readServerSettings(dir string) (serverSettings, error) {
 	var settings serverSettings
+	// Une la carpeta de datos con el nombre fijo del archivo de configuración.
 	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	// La ausencia del archivo es normal: la aplicación seguirá con valores por defecto.
 	if os.IsNotExist(err) {
 		return settings, nil
 	}
 	if err != nil {
 		return settings, err
 	}
+	// Convierte el JSON en opciones tipadas y da contexto si está mal formado.
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return settings, fmt.Errorf("settings.json: %w", err)
 	}
@@ -43,6 +48,7 @@ func readServerSettings(dir string) (serverSettings, error) {
 // defaultDir respeta XDG_DATA_HOME y usa ~/.local/share cuando no está definido.
 func defaultDir() string {
 	base := os.Getenv("XDG_DATA_HOME")
+	// En Linux, XDG_DATA_HOME permite al usuario elegir dónde guardar datos de aplicaciones.
 	if base == "" {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".local", "share")
@@ -62,7 +68,9 @@ func run(args []string) error {
 		return fmt.Errorf("uso: chat-lan-go server|init|list|fingerprint|approve|revoke|disconnect|delete|recover|backup [opciones]")
 	}
 	action := args[0]
+	// Cada comando procesa sus banderas por separado para compartir opciones comunes.
 	fs := flag.NewFlagSet(action, flag.ContinueOnError)
+	// Define rutas y valores iniciales; el usuario puede reemplazarlos por banderas.
 	dir := fs.String("data", defaultDir(), "carpeta de datos")
 	host := fs.String("host", "0.0.0.0", "dirección de escucha")
 	port := fs.Int("port", 8765, "puerto TCP")
@@ -74,9 +82,11 @@ func run(args []string) error {
 		return e
 	}
 	tail := fs.Args()
+	// tail contiene los argumentos posicionales que quedan después de procesar banderas.
 	switch action {
 	case "init":
 		// Inicializa la identidad TLS y crea una base SQLite vacía.
+		// El certificado permite que el cliente autentique al servidor antes del chat.
 		fp, e := initializeTLS(*dir, strings.Split(*hosts, ","))
 		if e != nil {
 			return e
@@ -86,6 +96,7 @@ func run(args []string) error {
 			return e
 		}
 		store.close()
+		// Muestra la huella para que se pueda comparar o incluir al preparar clientes.
 		fmt.Println("Huella SHA-256:", fp)
 		return nil
 	case "fingerprint":
@@ -104,6 +115,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
+		// Registra cuáles banderas se escribieron para distinguirlas de sus valores por defecto.
 		provided := map[string]bool{}
 		// Solo reemplaza valores predeterminados de banderas que el usuario no indicó.
 		fs.Visit(func(f *flag.Flag) { provided[f.Name] = true })
@@ -120,6 +132,7 @@ func run(args []string) error {
 			*allow = settings.Allow
 		}
 		autoApprove := true
+		// Si el JSON no define esta opción, una identidad nueva se aprueba mientras haya cupo.
 		if settings.AutoApprove != nil {
 			autoApprove = *settings.AutoApprove
 		}
@@ -130,6 +143,7 @@ func run(args []string) error {
 			return fmt.Errorf("puerto inválido")
 		}
 		if *allow != "auto" {
+			// Valida de antemano cada subred CIDR para no arrancar con una regla inválida.
 			for _, raw := range strings.Split(*allow, ",") {
 				if _, _, e := net.ParseCIDR(strings.TrimSpace(raw)); e != nil {
 					return fmt.Errorf("subred inválida: %s", raw)
@@ -165,8 +179,8 @@ func run(args []string) error {
 			return e
 		}
 		log.Printf("Chat LAN Go: %s:%d UDP %d", *host, sv.port, *udpPort)
+		// El contexto recibe la señal del sistema y permite apagar listeners y sesiones ordenadamente.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		// Mantiene el proceso activo hasta recibir Ctrl+C o la señal de terminación del servicio.
 		defer stop()
 		<-ctx.Done()
 		sv.stop()

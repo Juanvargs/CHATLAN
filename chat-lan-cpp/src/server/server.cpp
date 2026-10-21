@@ -123,20 +123,24 @@ void ChatServer::read(const PeerPtr &peer) {
 void ChatServer::dispatch(const PeerPtr &peer, const QJsonObject &message) {
     auto kind = message["type"].toString();
     if (peer->stage == 0) {
+        // Primera etapa: exige hello y prepara la clave pública y nonce del cliente.
         if (kind != "hello") throw std::runtime_error("Se esperaba hello");
         peer->publicKey = message["public"].toString(); fromBase64(peer->publicKey,32);
         peer->name = message["name"].toString(); peer->nonce = randomNonce(); peer->stage = 1;
         send(peer,chat::event("challenge",{{"nonce",peer->nonce},{"fingerprint",fingerprint}})); return;
     }
     if (peer->stage == 1) {
+        // Segunda etapa: verifica la firma que demuestra posesión de la clave privada.
         if (kind != "proof" || !verify(peer->publicKey,proofPayload(peer->nonce,peer->publicKey,fingerprint),fromBase64(message["signature"].toString(),64))) throw std::runtime_error("Firma inválida");
         peer->nonce.clear(); peer->user = store.registerClient(peer->publicKey,peer->name,options.autoApprove);
         auto status = peer->user["status"].toString();
         if (status != "approved") {
+            // Informa por qué no puede entrar y cierra el peer sin activar presencia.
             auto type = status == "deleted" ? "account_deleted" : status == "pending" ? "registration_pending" : "revoked";
             send(peer,chat::event(type,publicUser(peer->user))); finish(peer); return;
         }
         auto id = peer->user["id"].toString(); auto old = sessions.value(id);
+        // Solo queda una sesión activa por ID; el acceso nuevo reemplaza la anterior.
         sessions.insert(id,peer); peer->stage = 2; store.setOnline(id,true);
         if (old && old != peer) finish(old,"replaced");
         send(peer,chat::event("authenticated",publicUser(peer->user))); sendHistory(peer); presence(); return;
@@ -144,8 +148,10 @@ void ChatServer::dispatch(const PeerPtr &peer, const QJsonObject &message) {
     auto sender = peer->user["id"].toString();
     if (sessions.value(sender) != peer) { finish(peer,"replaced"); return; }
     auto current = store.get(sender);
+    // Revisa permisos en cada mensaje para aplicar cambios administrativos rápidamente.
     if (current.isEmpty() || current["delete_requested"].toInt()) { finish(peer,"account_deleted"); return; }
     if (current["status"] != "approved" || current["public"].toString() != peer->publicKey) { finish(peer,"revoked"); return; }
+    // Conserva solo peticiones de los últimos cinco segundos para limitar frecuencia.
     while(!peer->recent.isEmpty() && peer->recent.head() < now()-5000) peer->recent.dequeue();
     if (peer->recent.size() >= 50) throw std::runtime_error("Demasiadas solicitudes");
     peer->recent.enqueue(now());
@@ -163,12 +169,14 @@ void ChatServer::dispatch(const PeerPtr &peer, const QJsonObject &message) {
     auto id = message["message_id"].toString(); auto target = message["to"].toString(); auto text = message["text"].toString().trimmed();
     if (QUuid(id).isNull() || text.isEmpty() || text.size() > 2000 || target.isEmpty()) throw std::runtime_error("Mensaje inválido");
     QList<PeerPtr> recipients;
+    // Sala general toma todas las sesiones; el privado busca solo el ID destinatario.
     if (target == "general") recipients = sessions.values(); else {
         auto recipient = sessions.value(target); auto row = store.get(target);
         if (!recipient || row["status"] != "approved" || row["delete_requested"].toInt()) { send(peer,chat::event("error",{{"message_id",id},{"text","Destinatario desconectado"}})); return; }
         recipients.append(recipient);
     }
     auto timestamp = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    // Persiste primero; si ya se guardó el ID, responde como duplicado y no redistribuye.
     if (!store.saveMessage(id,sender,target,text,timestamp)) { send(peer,chat::event("accepted",{{"message_id",id},{"duplicate",true}})); return; }
     auto packet = chat::event("message",{{"message_id",id},{"sender",publicUser(peer->user)},{"to",target},{"text",text},{"time",timestamp}});
     Delivery delivery{sender,{},now()};

@@ -19,10 +19,12 @@ import (
 
 // newUUID crea un identificador aleatorio para cuentas.
 func newUUID() (string, error) {
+	// Cada cuenta recibe 16 bytes aleatorios, representados como UUID.
 	b := make([]byte, 16)
 	if _, e := rand.Read(b); e != nil {
 		return "", e
 	}
+	// Ajusta los bits de versión y variante para respetar el formato UUID v4.
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
@@ -49,11 +51,13 @@ type session struct {
 func (s *session) close() { s.once.Do(func() { _ = s.conn.Close() }) }
 // send encola un evento sin bloquear el hilo de manejo de la sesión.
 func (s *session) send(p packet) bool {
+	// Cuenta el paquete en cola para que el cierre espere un momento a vaciarla.
 	s.pending.Add(1)
 	select {
 	case s.out <- p:
 		return true
 	default:
+		// Una cola llena significa que el cliente no recibe a tiempo; se cierra la sesión.
 		s.pending.Add(-1)
 		s.close()
 		return false
@@ -62,6 +66,7 @@ func (s *session) send(p packet) bool {
 // pump escribe los eventos en cola sobre la conexión cifrada.
 func (s *session) pump() {
 	for p := range s.out {
+		// Evita que una conexión lenta bloquee indefinidamente el envío a otros usuarios.
 		_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		e := writePacket(s.conn, p)
 		s.pending.Add(-1)
@@ -95,6 +100,7 @@ func newServer(store *Store, tlsConfig *tls.Config, fingerprint, host string, po
 }
 // allowed limita las conexiones TCP a loopback, la subred local o los CIDR configurados.
 func (sv *Server) allowed(addr net.Addr) bool {
+	// La dirección remota llega como "IP:puerto"; solo se evalúa la IP.
 	host, _, e := net.SplitHostPort(addr.String())
 	if e != nil {
 		return false
@@ -104,6 +110,7 @@ func (sv *Server) allowed(addr net.Addr) bool {
 		return false
 	}
 	if sv.allow == "auto" {
+		// En modo automático siempre se permite una conexión del mismo computador.
 		if ip.IsLoopback() {
 			return true
 		}
@@ -116,6 +123,7 @@ func (sv *Server) allowed(addr net.Addr) bool {
 			return false
 		}
 		addrs, _ := it.Addrs()
+		// Compara la IP cliente con cada subred asignada a la interfaz principal.
 		for _, a := range addrs {
 			_, sub, e := net.ParseCIDR(a.String())
 			if e == nil && sub.Contains(ip) {
@@ -124,6 +132,7 @@ func (sv *Server) allowed(addr net.Addr) bool {
 		}
 		return false
 	}
+	// En modo manual basta con que la dirección pertenezca a una subred configurada.
 	for _, raw := range strings.Split(sv.allow, ",") {
 		_, sub, e := net.ParseCIDR(strings.TrimSpace(raw))
 		if e == nil && sub.Contains(ip) {
@@ -148,11 +157,13 @@ func defaultRouteInterface() string {
 }
 // start abre TCP/UDP y lanza las rutinas de aceptación, descubrimiento y supervisión.
 func (sv *Server) start() error {
+	// TCP lleva autenticación y mensajes; si no abre, el servidor no puede operar.
 	ln, e := net.Listen("tcp", fmt.Sprintf("%s:%d", sv.host, sv.port))
 	if e != nil {
 		return e
 	}
 	sv.listener = ln
+	// Consulta el puerto real por si se pidió el puerto cero para una prueba local.
 	sv.port = ln.Addr().(*net.TCPAddr).Port
 	addr := &net.UDPAddr{IP: net.ParseIP(sv.host), Port: sv.udpPort}
 	udp, e := net.ListenUDP("udp4", addr)
@@ -164,6 +175,7 @@ func (sv *Server) start() error {
 		log.Printf("Descubrimiento UDP no disponible: %v", e)
 	}
 	go sv.monitor()
+	// Las rutinas separadas atienden clientes y tareas de administración concurrentemente.
 	go sv.accept()
 	return nil
 }
@@ -205,20 +217,24 @@ func (sv *Server) discover() {
 // accept filtra IPs, limita conexiones simultáneas y crea una sesión TLS por cliente.
 func (sv *Server) accept() {
 	for {
+		// Accept espera hasta que un cliente solicite abrir una conexión TCP.
 		c, e := sv.listener.Accept()
 		if e != nil {
 			return
 		}
 		if !sv.allowed(c.RemoteAddr()) {
+			// Se rechaza la IP antes de iniciar el costoso saludo TLS.
 			c.Close()
 			continue
 		}
 		sv.mu.Lock()
+		// Limita memoria y trabajo del servidor si llegan demasiadas conexiones.
 		if len(sv.connections) >= 30 {
 			sv.mu.Unlock()
 			c.Close()
 			continue
 		}
+		// Envuelve TCP en TLS y reserva una cola para mensajes salientes.
 		ss := &session{conn: tls.Server(c, sv.tls), out: make(chan packet, 100)}
 		sv.connections[ss] = true
 		sv.mu.Unlock()
@@ -228,6 +244,7 @@ func (sv *Server) accept() {
 // presence difunde a las sesiones aprobadas la lista actual de usuarios conectados.
 func (sv *Server) presence() {
 	sv.mu.Lock()
+	// Copia los usuarios y sesiones conectadas mientras el mapa está protegido.
 	users := []packet{}
 	for _, ss := range sv.sessions {
 		users = append(users, ss.user.publicInfo())
@@ -237,6 +254,7 @@ func (sv *Server) presence() {
 		recipients = append(recipients, ss)
 	}
 	sv.mu.Unlock()
+	// Envía después de liberar el candado para no bloquear otras conexiones.
 	for _, ss := range recipients {
 		ss.send(event("presence", packet{"users": users}))
 	}
@@ -244,10 +262,12 @@ func (sv *Server) presence() {
 // handle ejecuta negociación TLS, reto Ed25519, autorización e intercambio de eventos.
 func (sv *Server) handle(ss *session) {
 	defer func() {
+		// Al salir por error o desconexión, elimina la sesión de los mapas en memoria.
 		sv.mu.Lock()
 		delete(sv.connections, ss)
 		active := ss.user.ID != "" && sv.sessions[ss.user.ID] == ss
 		if active {
+			// Solo marca offline si esta era la sesión vigente de la cuenta.
 			delete(sv.sessions, ss.user.ID)
 		}
 		sv.mu.Unlock()
@@ -262,12 +282,14 @@ func (sv *Server) handle(ss *session) {
 		ss.close()
 	}()
 	tlsConn := ss.conn.(*tls.Conn)
+	// El saludo TLS tiene límite para liberar sockets que nunca lo completan.
 	_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
 	if e := tlsConn.Handshake(); e != nil {
 		return
 	}
 	_ = tlsConn.SetDeadline(time.Time{})
 	go ss.pump()
+	// El cliente empieza enviando hello; el límite evita esperar eternamente el primer paquete.
 	_ = setDeadline(ss.conn, 15*time.Second)
 	hello, e := readPacket(ss.conn)
 	if e != nil {
@@ -278,6 +300,7 @@ func (sv *Server) handle(ss *session) {
 		return
 	}
 	public := field(hello, "public")
+	// Revisa la longitud de clave antes de generar y enviar un reto.
 	if _, e = unb64(public, 32); e != nil {
 		ss.send(event("error", packet{"text": "Solicitud o firma inválida"}))
 		return
@@ -301,6 +324,7 @@ func (sv *Server) handle(ss *session) {
 		return
 	}
 	u, e := sv.store.register(public, name)
+	// Almacena la identidad solo después de demostrar posesión de la clave privada.
 	if e != nil {
 		ss.send(event("error", packet{"text": "Solicitud o firma inválida"}))
 		return
@@ -313,6 +337,7 @@ func (sv *Server) handle(ss *session) {
 	}
 	ss.user = u
 	ss.public = public
+	// Registra una única sesión activa por cuenta; un nuevo acceso reemplaza al anterior.
 	sv.mu.Lock()
 	old := sv.sessions[u.ID]
 	sv.sessions[u.ID] = ss
@@ -334,6 +359,7 @@ func (sv *Server) handle(ss *session) {
 	}
 	sv.presence()
 	for {
+		// Cada espera de lectura vence si no llegan datos durante 90 segundos.
 		_ = setDeadline(ss.conn, 90*time.Second)
 		msg, e := readPacket(ss.conn)
 		if e != nil {
@@ -352,12 +378,14 @@ func (sv *Server) handle(ss *session) {
 			return
 		}
 		current, e := sv.store.get(u.ID)
+		// Revalida autorización durante toda la sesión, no solo al iniciar sesión.
 		if e != nil || current.Status != "approved" || current.Public != public {
 			ss.send(event("revoked", nil))
 			return
 		}
 		now := time.Now()
 		cutoff := now.Add(-5 * time.Second)
+		// Elimina marcas antiguas para contar solo solicitudes del último intervalo.
 		filtered := ss.recent[:0]
 		for _, t := range ss.recent {
 			if t.After(cutoff) {
@@ -380,6 +408,7 @@ func (sv *Server) handle(ss *session) {
 func (sv *Server) dispatch(ss *session, p packet) error {
 	switch field(p, "type") {
 	case "ping":
+		// Responde al keepalive y comprueba que el cliente aún está conectado.
 		ss.send(event("pong", nil))
 		return nil
 	case "received":
@@ -389,6 +418,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 			return errors.New("acuse inválido")
 		}
 		key := sender + ":" + id
+		// Consulta el recibo temporal creado cuando se guardó el mensaje.
 		sv.mu.Lock()
 		receipt := sv.seen[key]
 		if receipt != nil && receipt.waiting[ss.user.ID] {
@@ -411,6 +441,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 		}
 		key := ss.user.ID + ":" + id
 		sv.mu.Lock()
+		// Retira IDs viejos para que la memoria temporal de duplicados no crezca sin límite.
 		for k, v := range sv.seen {
 			if time.Since(v.at) > 300*time.Second {
 				delete(sv.seen, k)
@@ -425,6 +456,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 			return nil
 		}
 		recipients := []*session{}
+		// 'general' se envía a todos los conectados; un UUID apunta a un destinatario.
 		if target == "general" {
 			for _, r := range sv.sessions {
 				recipients = append(recipients, r)
@@ -442,6 +474,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 		waiting := map[string]bool{}
 		eligible := []*session{}
 		for _, r := range recipients {
+			// No envía a una sesión cuya cuenta fue revocada o cuya clave cambió.
 			current, e := sv.store.get(r.user.ID)
 			if e == nil && current.Status == "approved" && current.Public == r.public {
 				waiting[r.user.ID] = true
@@ -452,6 +485,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 			return e
 		}
 		sv.mu.Lock()
+		// Guarda deduplicación y destinatarios pendientes para resolver reintentos y acuses.
 		sv.seen[key] = &receipt{at: time.Now(), target: target, text: text, waiting: waiting}
 		if len(sv.seen) > 1000 {
 			var oldestKey string
@@ -473,6 +507,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 			}
 		}
 		if target != "general" && recipients[0] != ss {
+			// Devuelve el mensaje privado al emisor para que también aparezca en su historial visual.
 			ss.send(out)
 		}
 		ss.send(event("accepted", packet{"message_id": id, "duplicate": false}))
