@@ -1,26 +1,25 @@
 # CHATLAN
 
-Chat de texto para una red local. El **servidor principal está escrito en Go** y
-el **cliente de escritorio y el panel de administración están escritos en C++/Qt**.
-Los clientes descubren el servidor por UDP 8764 y se comunican con él por
-TCP 8765 con TLS. Los usuarios se identifican mediante claves Ed25519 y el
-servidor guarda cuentas y mensajes en SQLite.
+CHATLAN es una aplicación de mensajería de texto para una red local. La versión integrada usa un servidor Go, un cliente de escritorio C++/Qt y un panel de administración C++/Qt. El servidor acepta conexiones TCP protegidas con TLS, autentica perfiles con claves Ed25519 y persiste usuarios y mensajes en SQLite.
 
-Este repositorio reúne los dos proyectos:
+Ofrece conversación general y privada entre usuarios aprobados de la misma LAN, presencia e historial limitado. El descubrimiento inicial usa UDP. No implementa llamadas, envío de archivos, audio, mensajes sin conexión ni confirmación de lectura humana.
+
+## Estructura
 
 ```text
 CHATLAN/
-├── SERVER_JP/     Servidor Go, scripts de empaquetado y documentación
-└── chat-lan-cpp/  Cliente de escritorio C++/Qt y panel Qt
+├── SERVER_JP/       Servidor Go, comandos, empaquetado y guías
+├── chat-lan-cpp/    Cliente Qt, panel Qt y servidor C++ alternativo
+└── docs/            Arquitectura, protocolo, operación, instalación y equipo
 ```
 
-Ambas carpetas son **hermanas**. Los scripts de empaquetado del servidor encuentran
-el cliente usando esa relación, por lo que conviene mantenerlas juntas.
+La configuración integrada es **servidor Go + cliente y panel C++/Qt**. El servidor C++ alternativo sigue en `chat-lan-cpp`; ambos servidores usan los mismos puertos predeterminados y no deben ejecutarse a la vez en un equipo. Mantén ambas carpetas como hermanas porque los scripts de empaquetado dependen de esa relación.
 
-## Compilar desde el código
+## Requisitos y compilación
 
-Consulta [los requisitos de Go](SERVER_JP/README.md) y
-[los requisitos de C++/Qt](chat-lan-cpp/README.md). Desde la raíz del repositorio:
+Se requiere Go 1.22+, compilador C y SQLite 3 de desarrollo. Cliente y panel requieren C++20, CMake 3.22+, Ninja, Qt 6.4+ (Core, Network, Widgets, Test), OpenSSL y SQLite 3. Los scripts incluidos están orientados a Linux.
+
+Desde la raíz del repositorio:
 
 ```bash
 cd SERVER_JP
@@ -33,34 +32,37 @@ cd ../chat-lan-cpp
 ctest --test-dir build --output-on-failure
 ```
 
-Las carpetas `build/`, `dist/`, `.toolchain/` y los ejecutables generados se
-excluyen de Git. Cada servidor crea su propio certificado `server.pem` y su
-clave privada `server.key`; los clientes deben recibir el certificado público
-de **ese mismo servidor**. No publiques la clave privada ni la base SQLite.
+## Primera ejecución
 
-## Uso en este equipo
-
-En el equipo donde se configuró el servicio `chat-lan-go.service`, desde una
-terminal situada en la raíz del repositorio:
+En una terminal:
 
 ```bash
-systemctl --user status chat-lan-go.service
+cd SERVER_JP
+./chat-lan-go init
+./chat-lan-go server
+```
+
+En otra terminal:
+
+```bash
 cd chat-lan-cpp
 ./scripts/run.sh ChatLANCpp
 ./scripts/run.sh chat-lan-admin-gui-cpp --go
 ```
 
-El servicio de este equipo ejecuta el servidor desde `CHATLAN/SERVER_JP`. La
-base de datos, la configuración y el certificado están normalmente en
-`~/.local/share/chat-lan-go/server/`, fuera del repositorio. Al instalarlo en
-otro equipo hay que iniciar allí su propio servicio y generar su certificado.
-
-Para crear un cliente portátil vinculado al certificado del servidor, revisa
-[la guía de entrega](SERVER_JP/docs/entrega-go-cpp.md). Los paquetes `.deb` y
-`.tar.gz` son artefactos de compilación y no forman parte del código versionado.
+El cliente confía en el certificado público `server.pem` de esa instancia. La clave privada `server.key` permanece en el servidor. Para instalar en otros equipos, sigue [Instalación y distribución](docs/instalacion-y-distribucion.md).
 
 ## Documentación
 
-- [Estudio de los conceptos y del funcionamiento del servidor](SERVER_JP/docs/servidor-explicado.md).
-- [Guía de la interfaz de administración](SERVER_JP/docs/interfaz-administracion.md).
-- [Instalación y entrega a otros computadores](SERVER_JP/docs/entrega-go-cpp.md).
+Empieza por la [ruta de aprendizaje](docs/README.md) y [arquitectura](docs/arquitectura.md). Consulta el [estudio del servidor](SERVER_JP/docs/servidor-explicado.md), la [referencia del protocolo](docs/protocolo.md), la [operación y solución de problemas](docs/operacion.md) y la [guía del panel](SERVER_JP/docs/interfaz-administracion.md).
+
+## Equipo
+
+- Sebastián Tovar
+- Juan Pablo Vargas
+- Juan David Romero
+- Juan Felipe Pachón
+
+## Licencia
+
+El repositorio no contiene un archivo `LICENSE`, así que no publica una licencia que autorice la reutilización o distribución del software. El equipo debe acordar y añadir una antes de presentar el proyecto como software reutilizable. Paquetes `.deb`, `.tar.gz`, certificados, claves y bases de datos son artefactos/datos locales y no deben versionarse.

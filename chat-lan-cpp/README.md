@@ -1,12 +1,16 @@
 # Chat LAN C++
 
-Implementación en **C++20** del chat local del proyecto Python original. Cliente y panel de
-administración usan Qt 6 Widgets; el servidor usa Qt 6 Network. OpenSSL gestiona
-las claves Ed25519 y el certificado TLS, y SQLite guarda cuentas y mensajes. La
-aplicación no necesita Python en tiempo de ejecución.
+Implementación en **C++20** de los componentes de escritorio de CHATLAN: cliente
+y panel de administración Qt 6. También contiene un servidor C++ alternativo
+con Qt Network. La configuración integrada del repositorio utiliza el servidor
+Go que está en `../SERVER_JP`; cliente/panel pueden usarse con él. OpenSSL
+gestiona operaciones criptográficas y SQLite persiste datos. No se necesita
+Python en tiempo de ejecución.
 
-La [tabla de equivalencia](docs/equivalencia.md) relaciona cada función del
-proyecto original con el código C++ y las comprobaciones realizadas.
+Empieza por la [documentación de CHATLAN](../docs/README.md), la
+[arquitectura](../docs/arquitectura.md) y la [referencia del protocolo](../docs/protocolo.md).
+La [tabla de equivalencia](docs/equivalencia.md) describe la relación con el
+proyecto Python original y sus límites.
 
 ## Funciones
 

@@ -1,7 +1,10 @@
 # Equivalencia con `chat-server`
 
-Referencia: implementación Python original en `chat-server/src/chat_lan/` (no incluida aquí). La versión C++
-está en `src/` y sus cuatro ejecutables se compilan desde `CMakeLists.txt`.
+Referencia histórica: implementación Python original en `chat-server/src/chat_lan/` (no incluida en este
+repositorio). La configuración integrada actual combina el servidor Go de `../SERVER_JP` con el cliente y
+panel C++/Qt de `src/`. Este directorio conserva además un servidor C++ alternativo. Para conocer la
+arquitectura vigente, consulta [`../../docs/arquitectura.md`](../../docs/arquitectura.md); las verificaciones
+indicadas abajo son el registro previo del equipo y no sustituyen la ejecución de pruebas en la versión actual.
 
 | Función del original | Implementación C++ | Verificación |
 | --- | --- | --- |

@@ -1,17 +1,17 @@
-# Chat LAN Go
+# Servidor CHATLAN en Go
 
-Servidor del proyecto Python original reimplementado en Go. Incluye TLS,
-autenticación Ed25519, protocolo JSON, descubrimiento UDP, persistencia SQLite y
-administración por terminal. La entrega integrada usa el cliente y el panel
-gráfico C++/Qt de `../chat-lan-cpp`.
-El [estudio del original](docs/estudio-original.md) documenta el comportamiento.
-La [guía de entrega Go+C++](docs/entrega-go-cpp.md) explica los paquetes y la
-prueba con otros usuarios.
+Servidor principal de la versión integrada de CHATLAN. Incluye TLS,
+autenticación Ed25519, protocolo JSON, descubrimiento UDP, SQLite y comandos de
+administración. El cliente y el panel gráficos están en `../chat-lan-cpp`.
+Consulta la [guía general](../docs/README.md), la [arquitectura](../docs/arquitectura.md),
+la [referencia de red](../docs/protocolo.md), la [operación](../docs/operacion.md)
+y la [instalación](../docs/instalacion-y-distribucion.md).
 
 ## Compilar
 
-Requiere Go 1.22 o posterior, compilador C, `libsqlite3-dev` y acceso a la
-dependencia `github.com/mattn/go-sqlite3` al preparar el módulo.
+Requiere Go 1.22 o posterior, un compilador C para CGO, SQLite 3 de desarrollo
+(por ejemplo, `libsqlite3-dev` en Debian/Ubuntu) y acceso a la dependencia
+`github.com/mattn/go-sqlite3` al preparar el módulo.
 
 ```bash
 go mod download
@@ -33,11 +33,11 @@ go test ./...
 ./chat-lan-go backup /ruta/copia.sqlite3
 ```
 
-Todas las órdenes aceptan `--data RUTA` antes de los argumentos finales. La
-carpeta predeterminada es `~/.local/share/chat-lan-go/server`; el servidor no
-modifica los datos Python salvo que se indique explícitamente `--data`.
-`--init` crea el certificado la primera vez. El servidor también lee
-`settings.json` de esa carpeta (`host`, `port`, `discovery_port`, `allow` y
-`auto_approve`); los argumentos explícitos tienen prioridad. El panel C++/Qt
-lo modifica con `chat-lan-admin-gui-cpp --go`. Los puertos predeterminados son
-TCP 8765 y UDP 8764.
+Las órdenes admiten `--data RUTA` para elegir otra carpeta. La ruta por defecto
+es `~/.local/share/chat-lan-go/server`. El archivo `settings.json` admite
+`host`, `port`, `discovery_port`, `allow` y `auto_approve`; los argumentos
+explícitos prevalecen. `server --init` crea certificado/clave si faltan ambos.
+El panel usa `chat-lan-admin-gui-cpp --go`. Los puertos predeterminados son
+TCP 8765 y UDP 8764. Para explicación de estados, firmas, recibos y límites,
+consulta la [documentación del servidor](docs/servidor-explicado.md) y la
+[referencia de protocolo](../docs/protocolo.md).

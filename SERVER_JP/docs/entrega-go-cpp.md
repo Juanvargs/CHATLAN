@@ -1,4 +1,8 @@
-# Entrega Chat LAN: servidor Go y cliente C++/Qt
+# Guía de entrega heredada (referencia histórica)
+
+> **Guía vigente:** consulta [`docs/instalacion-y-distribucion.md`](../../docs/instalacion-y-distribucion.md) y [`docs/operacion.md`](../../docs/operacion.md). Los nombres de paquete, versión, pruebas y estado del servicio que aparecen más abajo describen una entrega local anterior y pueden haber cambiado. No uses esos nombres como archivos actuales sin regenerar los paquetes.
+
+## Contenido histórico
 
 Los nombres de paquete de esta guía son **archivos generados localmente** con
 los scripts de `packaging/`. Los ejecutables y paquetes no se versionan en Git.
