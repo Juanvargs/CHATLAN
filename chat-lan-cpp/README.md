@@ -4,13 +4,12 @@ Implementación en **C++20** de los componentes de escritorio de CHATLAN: client
 y panel de administración Qt 6. También contiene un servidor C++ alternativo
 con Qt Network. La configuración integrada del repositorio utiliza el servidor
 Go que está en `../SERVER_JP`; cliente/panel pueden usarse con él. OpenSSL
-gestiona operaciones criptográficas y SQLite persiste datos. No se necesita
-Python en tiempo de ejecución.
+gestiona operaciones criptográficas y SQLite persiste datos.
 
 Empieza por la [documentación de CHATLAN](../docs/README.md), la
 [arquitectura](../docs/arquitectura.md) y la [referencia del protocolo](../docs/protocolo.md).
-La [tabla de equivalencia](docs/equivalencia.md) describe la relación con el
-proyecto Python original y sus límites.
+El [mapa de arquitectura](../docs/arquitectura.md) explica la responsabilidad
+de cada archivo. El protocolo está descrito en [su referencia técnica](../docs/protocolo.md).
 
 ## Funciones
 
@@ -24,11 +23,10 @@ proyecto Python original y sus límites.
 - Panel local y consola para aprobar, revocar, desconectar y eliminar cuentas,
   hacer copias de SQLite y consultar el estado y los registros del servicio.
 
-El protocolo usa el mismo formato JSON con longitud prefijada, versión 1 y prueba
-Ed25519 que el proyecto Python. La estructura de la base SQLite y el archivo
-`identity.key` son compatibles. Esta versión guarda sus datos por defecto en
-`~/.local/share/chat-lan-cpp/`, para conservar intactos los del proyecto original.
-También se puede indicar una carpeta concreta con `--data` o `--profile`.
+El protocolo usa JSON con longitud prefijada, versión 1 y prueba Ed25519. Los
+perfiles del cliente guardan sus datos por defecto en
+`~/.local/share/chat-lan-cpp/`. Se puede indicar otra ruta con `--data` o
+`--profile`, según el ejecutable.
 
 ## Compilar y probar
 
@@ -66,8 +64,8 @@ permanece en el equipo servidor. Los perfiles posteriores reutilizan la
 configuración local. Si el cliente y el servidor están en el mismo equipo, el
 cliente toma el certificado de la carpeta de datos del servidor.
 
-Los puertos predeterminados coinciden con el proyecto Python: 8765 TCP y 8764
-UDP. Sólo una implementación puede ocupar esos puertos en un equipo a la vez.
+Los puertos predeterminados son 8765 TCP y 8764 UDP. Solo uno de los servidores
+(Go o C++) puede ocupar esos puertos en un equipo a la vez.
 El servidor acepta `--host`, `--port`, `--discovery-port`, `--allow` y `--data`.
 El cliente acepta `--profile` y `--public-key`. El panel permite cambiar puertos,
 subredes y aprobación automática en `settings.json`; se aplican al reiniciar.

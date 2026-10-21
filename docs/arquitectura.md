@@ -101,7 +101,6 @@ En la primera autenticación se asocia la identidad a su clave pública Ed25519.
 | `tls.go` | Crea y carga `server.pem`/`server.key`, protege los permisos locales y configura TLS mínimo 1.2. Consultarlo para el certificado, la huella y la clave del servidor. |
 | `store.go` | Define modelos y operaciones SQLite: alta de usuarios, permisos, estados, borrado, recuperación, mensajes, historial y copia de seguridad. Consultarlo para saber qué queda persistido. |
 | `server_test.go` | Pruebas automatizadas del protocolo, conversación, administración y configuración del servidor. Describe escenarios que el equipo automatizó. |
-| `tests/python_compat.py` | Herramienta de compatibilidad con el cliente Python original; no es necesaria para ejecutar el servidor normal. |
 | `go.mod` | Declara la versión de Go y las dependencias del módulo. |
 | `go.sum` | Guarda comprobaciones criptográficas de las versiones de dependencias descargadas. |
 | `packaging/build-client.sh` | Compila/prepara el cliente portátil Qt y lo vincula al certificado/IP indicados. |

@@ -210,4 +210,4 @@ Sirve para investigar problemas concretos, por ejemplo si el servicio no arranca
 - [Código de la ventana y sus botones](../../chat-lan-cpp/src/admin/gui.cpp).
 - [Operaciones de usuarios y copia SQLite](../../chat-lan-cpp/src/common/store.cpp).
 - [Servidor Go que aplica cambios de estado y desconexión](../server.go).
-- [Guía de instalación y entrega](entrega-go-cpp.md).
+- [Guía de instalación y entrega](../../docs/instalacion-y-distribucion.md).

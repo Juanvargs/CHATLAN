@@ -392,7 +392,7 @@ cd /ruta/a/CHATLAN/SERVER_JP
 
 La huella mostrada por `fingerprint` debe corresponder al certificado incluido en el cliente. Si un cliente informa «certificado inválido», comprueba primero que está usando el `server.pem` del **servidor actual**, que la fecha y hora de ambos equipos son correctas y que el servicio está activo. Si no descubre el servidor, comprueba UDP 8764; si lo descubre pero no conecta, comprueba TCP 8765, el firewall y las subredes permitidas.
 
-Para instalar y probar el cliente en otros equipos, consulta [la guía de entrega y prueba](entrega-go-cpp.md).
+Para instalar y probar el cliente en otros equipos, consulta [la guía de instalación y distribución](../../docs/instalacion-y-distribucion.md).
 
 ## 8. Dónde está implementado
 

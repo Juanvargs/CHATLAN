@@ -22,12 +22,13 @@ La documentación se separa por propósito: aprender paso a paso, resolver una t
 - [Protocolo de red](protocolo.md).
 - [Servidor Go](../SERVER_JP/README.md).
 - [Cliente C++/Qt y servidor alternativo](../chat-lan-cpp/README.md).
-- [Equivalencia con el proyecto Python original](../chat-lan-cpp/docs/equivalencia.md).
+- [Servidor C++ alternativo](../chat-lan-cpp/docs/servidor-cpp-alternativo.md).
 
 ## Explicaciones y contexto
 
 - [Conceptos y funcionamiento del servidor](../SERVER_JP/docs/servidor-explicado.md).
-- [Estudio del proyecto original](../SERVER_JP/docs/estudio-original.md).
+- [Fundamentos del servidor](../SERVER_JP/docs/conceptos-del-servidor.md).
+- [Estudio detallado del servidor](../SERVER_JP/docs/servidor-explicado.md).
 - [Equipo](equipo.md).
 
 ## Criterios editoriales
