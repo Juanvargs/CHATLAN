@@ -4,6 +4,10 @@ CHATLAN es una aplicación de mensajería de texto para una red local. La versi�
 
 Ofrece conversación general y privada entre usuarios aprobados de la misma LAN, presencia e historial limitado. El descubrimiento inicial usa UDP. No implementa llamadas, envío de archivos, audio, mensajes sin conexión ni confirmación de lectura humana.
 
+## Captura de la aplicación
+
+![Interfaz del cliente CHATLAN en una conversación de sala general](docs/images/cliente-chatlan.png)
+
 ## Estructura
 
 ```text
