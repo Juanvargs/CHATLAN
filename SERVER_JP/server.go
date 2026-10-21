@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 )
 
+// newUUID crea un identificador aleatorio para cuentas.
 func newUUID() (string, error) {
 	b := make([]byte, 16)
 	if _, e := rand.Read(b); e != nil {
@@ -27,11 +28,13 @@ func newUUID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
+// receipt conserva temporalmente los destinatarios que deben confirmar recepción.
 type receipt struct {
 	at           time.Time
 	target, text string
 	waiting      map[string]bool
 }
+// session guarda transporte, identidad y cola de salida de una conexión cliente.
 type session struct {
 	conn    net.Conn
 	out     chan packet
@@ -42,7 +45,9 @@ type session struct {
 	pending atomic.Int64
 }
 
+// close cierra la conexión una sola vez aunque varios procesos la soliciten.
 func (s *session) close() { s.once.Do(func() { _ = s.conn.Close() }) }
+// send encola un evento sin bloquear el hilo de manejo de la sesión.
 func (s *session) send(p packet) bool {
 	s.pending.Add(1)
 	select {
@@ -54,6 +59,7 @@ func (s *session) send(p packet) bool {
 		return false
 	}
 }
+// pump escribe los eventos en cola sobre la conexión cifrada.
 func (s *session) pump() {
 	for p := range s.out {
 		_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -66,6 +72,7 @@ func (s *session) pump() {
 	}
 }
 
+// Server reúne sockets, sesiones, reglas de acceso y estado temporal de recibos.
 type Server struct {
 	store         *Store
 	fingerprint   string
@@ -82,9 +89,11 @@ type Server struct {
 	stopped       chan struct{}
 }
 
+// newServer configura el estado en memoria sin abrir todavía los puertos.
 func newServer(store *Store, tlsConfig *tls.Config, fingerprint, host string, port, udpPort int, allow string) *Server {
 	return &Server{store: store, tls: tlsConfig, fingerprint: fingerprint, host: host, port: port, udpPort: udpPort, allow: allow, connections: map[*session]bool{}, sessions: map[string]*session{}, seen: map[string]*receipt{}, stopped: make(chan struct{})}
 }
+// allowed limita las conexiones TCP a loopback, la subred local o los CIDR configurados.
 func (sv *Server) allowed(addr net.Addr) bool {
 	host, _, e := net.SplitHostPort(addr.String())
 	if e != nil {
@@ -123,6 +132,7 @@ func (sv *Server) allowed(addr net.Addr) bool {
 	}
 	return false
 }
+// defaultRouteInterface encuentra la interfaz IPv4 usada por la ruta principal.
 func defaultRouteInterface() string {
 	data, e := os.ReadFile("/proc/net/route")
 	if e != nil {
@@ -136,6 +146,7 @@ func defaultRouteInterface() string {
 	}
 	return ""
 }
+// start abre TCP/UDP y lanza las rutinas de aceptación, descubrimiento y supervisión.
 func (sv *Server) start() error {
 	ln, e := net.Listen("tcp", fmt.Sprintf("%s:%d", sv.host, sv.port))
 	if e != nil {
@@ -156,6 +167,7 @@ func (sv *Server) start() error {
 	go sv.accept()
 	return nil
 }
+// stop cierra sockets y sesiones activas para apagar el servicio limpiamente.
 func (sv *Server) stop() {
 	select {
 	case <-sv.stopped:
@@ -175,6 +187,7 @@ func (sv *Server) stop() {
 	}
 	sv.mu.Unlock()
 }
+// discover responde por UDP a las búsquedas de clientes de la LAN.
 func (sv *Server) discover() {
 	buf := make([]byte, 256)
 	for {
@@ -189,6 +202,7 @@ func (sv *Server) discover() {
 		_, _ = sv.udp.WriteToUDP(reply, addr)
 	}
 }
+// accept filtra IPs, limita conexiones simultáneas y crea una sesión TLS por cliente.
 func (sv *Server) accept() {
 	for {
 		c, e := sv.listener.Accept()
@@ -211,6 +225,7 @@ func (sv *Server) accept() {
 		go sv.handle(ss)
 	}
 }
+// presence difunde a las sesiones aprobadas la lista actual de usuarios conectados.
 func (sv *Server) presence() {
 	sv.mu.Lock()
 	users := []packet{}
@@ -226,6 +241,7 @@ func (sv *Server) presence() {
 		ss.send(event("presence", packet{"users": users}))
 	}
 }
+// handle ejecuta negociación TLS, reto Ed25519, autorización e intercambio de eventos.
 func (sv *Server) handle(ss *session) {
 	defer func() {
 		sv.mu.Lock()
@@ -290,6 +306,7 @@ func (sv *Server) handle(ss *session) {
 		return
 	}
 	if u.Status != "approved" {
+		// Los perfiles no aprobados reciben su estado y no entran a la sala.
 		kind := map[string]string{"pending": "registration_pending", "revoked": "revoked", "deleted": "account_deleted"}[u.Status]
 		ss.send(event(kind, u.publicInfo()))
 		return
@@ -308,6 +325,7 @@ func (sv *Server) handle(ss *session) {
 		time.AfterFunc(200*time.Millisecond, old.close)
 	}
 	ss.send(event("authenticated", u.publicInfo()))
+	// Después de autenticar, envía primero historial y luego publica presencia.
 	history, e := sv.store.history(u.ID)
 	if e == nil {
 		for _, m := range history {
@@ -358,12 +376,14 @@ func (sv *Server) handle(ss *session) {
 		}
 	}
 }
+// dispatch valida y ejecuta cada evento del cliente ya autenticado.
 func (sv *Server) dispatch(ss *session, p packet) error {
 	switch field(p, "type") {
 	case "ping":
 		ss.send(event("pong", nil))
 		return nil
 	case "received":
+		// Marca el acuse del destinatario y notifica al emisor cuando corresponde.
 		sender, id := field(p, "sender"), field(p, "message_id")
 		if sender == "" || id == "" {
 			return errors.New("acuse inválido")
@@ -383,6 +403,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 		}
 		return nil
 	case "send_message":
+		// Valida límites e ID antes de deduplicar, guardar y distribuir el texto.
 		id, text, target := field(p, "message_id"), field(p, "text"), field(p, "to")
 		text = strings.TrimSpace(text)
 		if !uuidValid(id) || !utf8.ValidString(text) || utf8.RuneCountInString(text) < 1 || utf8.RuneCountInString(text) > 2000 || target == "" {
@@ -460,6 +481,7 @@ func (sv *Server) dispatch(ss *session, p packet) error {
 		return errors.New("tipo inválido")
 	}
 }
+// monitor aplica solicitudes administrativas de desconexión/eliminación y revisa cuentas.
 func (sv *Server) monitor() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()

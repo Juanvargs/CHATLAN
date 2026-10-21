@@ -36,6 +36,7 @@ QPushButton[danger="true"]{background:#80505e;} QMenu{background:#202c33;} QMenu
 QScrollBar:vertical{background:#111b21;width:9px;} QScrollBar::handle:vertical{background:#374c57;border-radius:4px;min-height:24px;}
 QSplitter::handle{background:#2a3942;width:1px;}
 )"; }
+// Genera iniciales para el avatar local cuando no hay foto de perfil.
 static QString initials(const QString &label) {
     QString result;
     for(const auto &part: label.trimmed().split(' ',Qt::SkipEmptyParts)) {
@@ -44,10 +45,12 @@ static QString initials(const QString &label) {
     }
     return result.isEmpty()?"?":result;
 }
+// Selecciona un color estable a partir del nombre visible.
 static QString avatarColor(const QString &label) {
     static const QStringList colors{"#186a63","#704c88","#725334","#395e83","#774b5e","#526638"};
     return colors.at(qHash(label)%colors.size());
 }
+// Aplica forma, color y contenido al avatar de una conversación.
 static void styleAvatar(QLabel *avatar,const QString &label,int size,bool general=false) {
     avatar->setText(general?"✦":initials(label));
     avatar->setAlignment(Qt::AlignCenter);
@@ -55,6 +58,7 @@ static void styleAvatar(QLabel *avatar,const QString &label,int size,bool genera
     avatar->setStyleSheet(QString("QLabel{background:%1;color:#f5faf8;border-radius:%2px;font-size:%3px;font-weight:700;}")
         .arg(general?"#006d5b":avatarColor(label)).arg(size/2).arg(size/3));
 }
+// Solicita o crea la carpeta de perfil del usuario.
 QString chooseProfile(QWidget *parent) {
     QStringList available;
     if(QDir(dataRoot()+"/client").exists()) available.append(dataRoot()+"/client");
@@ -98,6 +102,7 @@ QString chooseProfile(QWidget *parent) {
     QObject::connect(list,&QListWidget::itemDoubleClicked,&dialog,[&](QListWidgetItem*) { dialog.accept(); });
     refresh(); if(dialog.exec()!=QDialog::Accepted) return {}; return list->currentItem()->data(Qt::UserRole).toString();
 }
+// Prepara el área desplazable donde se presentan los mensajes.
 MessageView::MessageView(QWidget *parent) : QScrollArea(parent) {
     setObjectName("messageView"); setWidgetResizable(true); setFrameShape(QFrame::NoFrame);
     setStyleSheet("QScrollArea,QScrollArea>QWidget>QWidget{background:#0b141a;border:0;}");
@@ -105,6 +110,7 @@ MessageView::MessageView(QWidget *parent) : QScrollArea(parent) {
     column->addStretch(); renderTimer.setSingleShot(true); connect(&renderTimer,&QTimer::timeout,this,&MessageView::rebuild);
 }
 void MessageView::setMessages(const QList<QJsonObject> &items,const QString &id) { pending=items; myId=id; renderTimer.start(0); }
+// Reconstruye las burbujas visibles usando los mensajes cargados en memoria.
 void MessageView::rebuild() {
     while(auto item=column->takeAt(0)) { if(item->widget()) delete item->widget(); delete item; }
     for(auto packet:pending) {
@@ -119,12 +125,14 @@ void MessageView::rebuild() {
     }
     column->addStretch(); scrollToBottom();
 }
+// Lleva la conversación al mensaje más reciente.
 void MessageView::scrollToBottom() {
     column->activate(); body->adjustSize();
     QTimer::singleShot(0,this,[this] { verticalScrollBar()->setValue(verticalScrollBar()->maximum()); });
     QTimer::singleShot(100,this,[this] { verticalScrollBar()->setValue(verticalScrollBar()->maximum()); });
 }
 QString MessageView::plainText() const { QString result; for(auto packet:pending) result+=packet["text"].toString()+"\n"; return result; }
+// Crea controles, conecta señales y carga identidad, historial y preferencias del perfil.
 Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profile(path), identity(path), connection(identity,this) {
     privateDir(profile); setWindowTitle("Chat LAN"); setWindowIcon(QIcon(":/logo.png")); resize(1180,760);
     config=readJson(profile+"/connection.json");
@@ -191,6 +199,7 @@ Window::Window(const QString &path,QWidget *parent) : QMainWindow(parent), profi
     rebuildTargets(); sendButton->setEnabled(false); text->setEnabled(false);
 }
 void Window::saveConfig() { writeJson(profile+"/connection.json",config); }
+// Inicia o detiene la conexión según el estado visible del cliente.
 void Window::connectChat() {
     try {
         if(name->text().trimmed().isEmpty()) throw std::runtime_error("Escribe tu nombre");
@@ -207,6 +216,7 @@ void Window::connectChat() {
     } catch(const std::exception &e) { state->setText(e.what()); QMessageBox::warning(this,"Conexión",e.what()); }
 }
 QString Window::target() const { auto item=targets->currentItem(); return item?item->data(Qt::UserRole).toString():"general"; }
+// Actualiza la lista de sala general y usuarios disponibles.
 void Window::rebuildTargets() {
     auto selected=target(); targets->blockSignals(true); targets->clear();
     auto addConversation=[this](const QString &id,const QString &label,bool general) {
@@ -246,6 +256,7 @@ void Window::rebuildTargets() {
     targets->setCurrentRow(0); for(int i=0;i<targets->count();++i) if(targets->item(i)->data(Qt::UserRole)==selected) targets->setCurrentRow(i);
     targets->blockSignals(false); filterTargets(); renderHistory();
 }
+// Filtra conversaciones según el texto de búsqueda.
 void Window::filterTargets() {
     const auto query=search->text().trimmed();
     for(int i=0;i<targets->count();++i) {
@@ -253,18 +264,21 @@ void Window::filterTargets() {
         item->setHidden(!query.isEmpty() && !item->text().contains(query,Qt::CaseInsensitive));
     }
 }
+// Actualiza el contador local de mensajes no vistos de la conversación seleccionada.
 void Window::markConversationRead() {
     const auto id=target();
     if(unreadCounts.remove(id)==0) return;
     if(auto item=targets->currentItem()) if(auto row=targets->itemWidget(item))
         if(auto badge=row->findChild<QLabel*>("unreadBadge")) badge->hide();
 }
+// Vuelve a mostrar los mensajes guardados para el destino seleccionado.
 void Window::renderHistory() {
     auto id=target(); const bool general=id=="general"; auto label=general?"Sala general":targets->currentItem()?targets->currentItem()->text():"Sala general";
     chatTitle->setText(label); styleAvatar(chatAvatar,label,42,general);
     chatSubtitle->setText(general?QString("%1 participante(s) en línea").arg(onlineUsers.size()):onlineUsers.contains(id)?"En línea":"Desconectado");
     messages->setMessages(histories.value(id),myId);
 }
+// Guarda el evento entrante y actualiza vista, último mensaje y contador no visto.
 void Window::onMessage(const QJsonObject &packet) {
     auto kind=packet["type"].toString();
     if(kind=="authenticated" || kind=="registration_pending") {
@@ -299,6 +313,7 @@ void Window::onMessage(const QJsonObject &packet) {
     else if(kind=="accepted") state->setText("Mensaje guardado y aceptado por el servidor.");
     else if(kind=="delivered") state->setText("Mensaje recibido por una aplicación destinataria.");
 }
+// Valida el texto de entrada y solicita al servidor enviar el mensaje.
 void Window::sendMessage() {
     auto content=text->text().trimmed(); if(content.isEmpty()) return;
     try { connection.send(chat::event("send_message",{{"message_id",QUuid::createUuid().toString(QUuid::WithoutBraces)},{"to",target()},{"text",content}})); text->clear(); } catch(const std::exception &e) { state->setText(e.what()); }

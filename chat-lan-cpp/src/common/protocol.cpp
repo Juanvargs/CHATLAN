@@ -4,14 +4,17 @@
 #include <stdexcept>
 
 namespace chat {
+// Crea un evento JSON con versión de protocolo y nombre de tipo.
 QJsonObject event(const QString &type, QJsonObject fields) {
     fields.insert("v", 1); fields.insert("type", type); return fields;
 }
+// Serializa JSON compacto y antepone su longitud en big-endian.
 QByteArray encode(const QJsonObject &message) {
     auto body = QJsonDocument(message).toJson(QJsonDocument::Compact);
     if (body.isEmpty() || body.size() > MaxFrame) throw std::runtime_error("Trama demasiado grande");
     QByteArray wire(4, '\0'); qToBigEndian<quint32>(body.size(), wire.data()); return wire + body;
 }
+// Acumula fragmentos TCP y devuelve cada trama JSON completa disponible.
 QList<QJsonObject> Decoder::feed(const QByteArray &data) {
     if (data.size() > 4 * MaxFrame) throw std::runtime_error("Lectura demasiado grande");
     buffer += data; QList<QJsonObject> result;
@@ -29,11 +32,13 @@ QList<QJsonObject> Decoder::feed(const QByteArray &data) {
     if (buffer.size() > 4 + MaxFrame) throw std::runtime_error("Buffer inválido");
     return result;
 }
+// Decodifica Base64 y exige el largo binario indicado por el protocolo.
 QByteArray fromBase64(const QString &value, int expected) {
     auto bytes = QByteArray::fromBase64(value.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
     if (bytes.size() != expected) throw std::runtime_error("Credencial inválida");
     return bytes;
 }
+// Construye los bytes que la clave Ed25519 firma durante el acceso.
 QByteArray proofPayload(const QString &nonce, const QString &publicKey, const QString &fingerprint) {
     if (fingerprint.size() != 64) throw std::runtime_error("Huella inválida");
     auto fp = QByteArray::fromHex(fingerprint.toLatin1());

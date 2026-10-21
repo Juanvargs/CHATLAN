@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QTextStream>
 
+// Ejecuta los comandos administrativos de terminal sobre los datos del servidor.
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv); QCommandLineParser p; p.addHelpOption();
     p.addOptions({{"data","Directorio del servidor","ruta",chat::defaultServerDir()},{"json","Listado JSON"}});

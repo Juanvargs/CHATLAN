@@ -5,6 +5,7 @@
 #include <QTextStream>
 #include <QMessageBox>
 
+// Inicia el cliente gráfico o imprime la clave pública para el modo de recuperación.
 int main(int argc,char **argv) {
     // Public-key mode does not require a display server.
     bool keyMode=false; for(int i=1;i<argc;++i) if(QString::fromLocal8Bit(argv[i])=="--public-key") keyMode=true;

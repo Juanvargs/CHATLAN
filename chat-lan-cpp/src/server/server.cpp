@@ -31,6 +31,7 @@ ChatServer::ChatServer(ServerOptions value, QObject *parent)
     monitorTimer.setInterval(1000); connect(&monitorTimer,&QTimer::timeout,this,&ChatServer::monitor);
 }
 ChatServer::~ChatServer() { stop(); }
+// Abre sockets UDP/TLS, configura certificados y comienza a aceptar clientes.
 void ChatServer::start() {
     if (!QSslSocket::supportsSsl()) throw std::runtime_error("Backend TLS no disponible");
     QSslCertificate certificate(readFile(options.directory + "/server.pem"));
@@ -49,6 +50,7 @@ void ChatServer::start() {
     store.resetOnline(); stopping = false; monitorTimer.start();
     qInfo().noquote() << "Chat LAN C++:" << tcp.serverAddress().toString() << port() << "UDP" << discoveryPort();
 }
+// Decide si una IP remota coincide con la política local de acceso.
 bool ChatServer::allowed(const QHostAddress &address) const {
     if (address.protocol() != QAbstractSocket::IPv4Protocol) return false;
     if (options.allow != "auto") {
@@ -65,6 +67,7 @@ bool ChatServer::allowed(const QHostAddress &address) const {
         if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol && address.isInSubnet(entry.ip(),entry.prefixLength())) return true;
     return false;
 }
+// Acepta conexiones TLS, verifica acceso por IP y crea estado por cliente.
 void ChatServer::accept() {
     while (tcp.hasPendingConnections()) {
         auto socket = qobject_cast<QSslSocket*>(tcp.nextPendingConnection());
@@ -99,6 +102,7 @@ void ChatServer::finish(const PeerPtr &peer, const QString &kind) {
     auto socket = peer->socket;
     QTimer::singleShot(2000,socket,[socket] { socket->abort(); });
 }
+// Decodifica tramas del cliente y las envía al manejador de eventos.
 void ChatServer::read(const PeerPtr &peer) {
     if (peer->stage < 0) return;
     try {
@@ -115,6 +119,7 @@ void ChatServer::read(const PeerPtr &peer) {
         send(peer,chat::event("error",{{"text",QString::fromUtf8(e.what())}})); finish(peer);
     }
 }
+// Procesa autenticación, acuses, keepalive y mensajes del protocolo.
 void ChatServer::dispatch(const PeerPtr &peer, const QJsonObject &message) {
     auto kind = message["type"].toString();
     if (peer->stage == 0) {
@@ -175,16 +180,19 @@ void ChatServer::dispatch(const PeerPtr &peer, const QJsonObject &message) {
     deliveries.insert(sender + ":" + id,delivery);
     send(peer,chat::event("accepted",{{"message_id",id},{"duplicate",false}}));
 }
+// Difunde la lista actual de usuarios conectados.
 void ChatServer::presence() {
     QJsonArray users; for (auto peer : sessions) users.append(publicUser(peer->user));
     for (auto peer : sessions.values()) send(peer,chat::event("presence",{{"users",users}}));
 }
+// Envía al cliente su historial pertinente al finalizar autenticación.
 void ChatServer::sendHistory(const PeerPtr &peer) {
     for (auto row : store.history(peer->user["id"].toString())) {
         QJsonObject sender{{"id",row["sender"]},{"name",row["sender_name"]},{"code",row["sender_code"]}};
         send(peer,chat::event("message",{{"message_id",row["message_id"]},{"sender",sender},{"to",row["target"]},{"text",row["text"]},{"time",row["time"]},{"history",true}}));
     }
 }
+// Revisa periódicamente solicitudes administrativas y sesiones inactivas.
 void ChatServer::monitor() {
     try {
         bool reset = false;
@@ -202,6 +210,7 @@ void ChatServer::monitor() {
         while(deliveries.size() > 1000) deliveries.erase(deliveries.begin());
     } catch (const std::exception &e) { qWarning() << "Monitor:" << e.what(); }
 }
+// Detiene timers y cierra sockets y sesiones activas.
 void ChatServer::stop() {
     stopping = true; monitorTimer.stop(); udp.close(); tcp.close();
     for (auto peer : peers.values()) peer->socket->abort();

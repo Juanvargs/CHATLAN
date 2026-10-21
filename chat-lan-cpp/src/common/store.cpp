@@ -10,7 +10,9 @@
 #include <stdexcept>
 
 namespace chat {
+// Convierte errores de SQLite en excepciones legibles por las capas superiores.
 static void fail(sqlite3 *db) { throw std::runtime_error(sqlite3_errmsg(db)); }
+// Abre la base, agrega columnas faltantes y crea tablas e índices necesarios.
 Store::Store(const QString &path) {
     privateDir(QFileInfo(path).absolutePath());
     if (sqlite3_open(QFile::encodeName(path).constData(), &db) != SQLITE_OK) {
@@ -31,6 +33,7 @@ Store::Store(const QString &path) {
     } catch (...) { sqlite3_close(db); db = nullptr; throw; }
 }
 Store::~Store() { if (db) sqlite3_close(db); }
+// Ejecuta una consulta preparada y devuelve cada fila como objeto JSON.
 QList<QJsonObject> Store::query(const QString &sql, const QVariantList &params) {
     sqlite3_stmt *raw = nullptr;
     if (sqlite3_prepare_v2(db, sql.toUtf8().constData(), -1, &raw, nullptr) != SQLITE_OK) fail(db);
@@ -59,12 +62,14 @@ QList<QJsonObject> Store::query(const QString &sql, const QVariantList &params) 
     return rows;
 }
 void Store::execute(const QString &sql, const QVariantList &params) { query(sql, params); }
+// Ejecuta cambios atómicos y revierte la transacción si ocurre una excepción.
 void Store::transaction(const std::function<void()> &action) {
     execute("BEGIN IMMEDIATE");
     try { action(); execute("COMMIT"); } catch (...) { sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr); throw; }
 }
 QList<QJsonObject> Store::clients() { return query("SELECT * FROM clients ORDER BY code"); }
 QJsonObject Store::get(const QString &id) { auto rows = query("SELECT * FROM clients WHERE id=?", {id}); return rows.isEmpty() ? QJsonObject{} : rows.first(); }
+// Registra una clave pública nueva y decide si queda aprobada o pendiente.
 QJsonObject Store::registerClient(const QString &publicKey, const QString &name, bool autoApprove) {
     fromBase64(publicKey, 32);
     if (name.trimmed().isEmpty() || name.trimmed().size() > 32) throw std::runtime_error("Nombre inválido (1–32 caracteres)");
@@ -115,6 +120,7 @@ void Store::deleteClient(const QString &id) {
     });
 }
 void Store::finalizeDelete(const QString &id) { transaction([&] { auto row = get(id); if (!row.isEmpty()) deleteRow(row); }); }
+// Sustituye la clave de una cuenta recuperable y bloquea la credencial anterior.
 void Store::recover(const QString &id, const QString &publicKey) {
     fromBase64(publicKey, 32);
     transaction([&] {
@@ -130,6 +136,7 @@ void Store::recover(const QString &id, const QString &publicKey) {
         execute("UPDATE clients SET public=? WHERE id=?", {publicKey,id});
     });
 }
+// Guarda un mensaje y avisa si ya existía el mismo identificador.
 bool Store::saveMessage(const QString &id, const QString &sender, const QString &target, const QString &text, const QString &time) {
     bool inserted = false;
     transaction([&] {
@@ -141,11 +148,13 @@ bool Store::saveMessage(const QString &id, const QString &sender, const QString 
         execute("INSERT INTO messages(message_id,sender,target,text,time) VALUES(?,?,?,?,?)", {id,sender,target,text,time}); inserted = true;
     }); return inserted;
 }
+// Devuelve mensajes generales y los relacionados con una identidad, con límite.
 QList<QJsonObject> Store::history(const QString &id, int limit) {
     auto rows = query("SELECT m.*,c.name AS sender_name,c.code AS sender_code FROM messages m JOIN clients c ON c.id=m.sender WHERE m.target='general' OR m.sender=? OR m.target=? ORDER BY m.seq DESC LIMIT ?", {id,id,limit});
     std::reverse(rows.begin(), rows.end()); return rows;
 }
 int Store::messageCount() { return query("SELECT count(*) AS n FROM messages").first()["n"].toInt(); }
+// Usa la API de respaldo SQLite para copiar la base de forma consistente.
 void Store::backup(const QString &destination) {
     if (QFile::exists(destination)) throw std::runtime_error("El destino ya existe");
     privateDir(QFileInfo(destination).absolutePath()); sqlite3 *out = nullptr;

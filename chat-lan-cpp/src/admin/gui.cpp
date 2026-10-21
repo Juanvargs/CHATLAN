@@ -187,6 +187,7 @@ public:
     }
 };
 }
+// Inicia el panel gráfico y selecciona entre backend Go o servidor C++.
 int main(int argc,char **argv) {
     QApplication app(argc,argv); app.setApplicationName("ChatLANCppAdmin"); app.setDesktopFileName("chat-lan-cpp-admin"); app.setStyleSheet(style);
     QCommandLineParser p; p.addHelpOption(); p.addOptions({{"data","Carpeta del servidor","ruta"},{"unit","Unidad systemd de usuario","unidad"},{"go","Administrar el servidor Go"}}); p.process(app);

@@ -12,6 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// User representa una cuenta persistida y su estado de autorización/conexión.
 type User struct {
 	Code       int    `json:"code"`
 	ID         string `json:"id"`
@@ -23,19 +24,24 @@ type User struct {
 	Delete     bool   `json:"delete_requested"`
 }
 
+// publicInfo expone solo los datos de usuario que el protocolo permite compartir.
 func (u User) publicInfo() packet { return packet{"id": u.ID, "name": u.Name, "code": u.Code} }
 
+// Message es un mensaje guardado antes de distribuirlo a los clientes conectados.
 type Message struct {
 	ID, Sender, Target, Text, Time, SenderName string
 	SenderCode                                 int
 }
+// Store encapsula la base SQLite y la política de aprobación automática.
 type Store struct {
 	db          *sql.DB
 	autoApprove bool
 }
 
+// userCols mantiene el mismo orden de columnas que espera scanUser.
 const userCols = "code,id,public,name,status,online,disconnect_requested,delete_requested"
 
+// scanUser convierte una fila SQL en el modelo User.
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	var online, disconnect, del int
@@ -45,6 +51,7 @@ func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	u.Delete = del != 0
 	return u, e
 }
+// openStore prepara SQLite, crea tablas si faltan y aplica permisos al archivo de datos.
 func openStore(path string, auto bool) (*Store, error) {
 	if e := privateDir(filepath.Dir(path)); e != nil {
 		return nil, e
@@ -95,10 +102,13 @@ func openStore(path string, auto bool) (*Store, error) {
 	_ = os.Chmod(path, 0600)
 	return &Store{db: db, autoApprove: auto}, nil
 }
+// close libera la conexión SQLite.
 func (s *Store) close() error { return s.db.Close() }
+// get busca una identidad por su UUID interno.
 func (s *Store) get(id string) (User, error) {
 	return scanUser(s.db.QueryRow("SELECT "+userCols+" FROM clients WHERE id=?", id))
 }
+// list devuelve las cuentas ordenadas por el código visible asignado.
 func (s *Store) list() ([]User, error) {
 	rows, e := s.db.Query("SELECT " + userCols + " FROM clients ORDER BY code")
 	if e != nil {
@@ -115,11 +125,13 @@ func (s *Store) list() ([]User, error) {
 	}
 	return out, rows.Err()
 }
+// count cuenta las cuentas que tienen un estado determinado dentro de una transacción.
 func count(tx *sql.Tx, status string) (int, error) {
 	var n int
 	e := tx.QueryRow("SELECT count(*) FROM clients WHERE status=?", status).Scan(&n)
 	return n, e
 }
+// register valida la clave/nombre y registra o recupera el estado de una identidad.
 func (s *Store) register(public, name string) (User, error) {
 	if _, e := unb64(public, 32); e != nil {
 		return User{}, e
@@ -190,6 +202,7 @@ func (s *Store) register(public, name string) (User, error) {
 	}
 	return u, tx.Commit()
 }
+// setOnline actualiza presencia persistida al conectar o desconectar una cuenta.
 func (s *Store) setOnline(id string, online bool) error {
 	n := 0
 	if online {
@@ -198,6 +211,7 @@ func (s *Store) setOnline(id string, online bool) error {
 	_, e := s.db.Exec("UPDATE clients SET online=?,last_seen=datetime('now'),disconnect_requested=0 WHERE id=?", n, id)
 	return e
 }
+// resetOnline limpia presencia antigua cuando el proceso servidor inicia de nuevo.
 func (s *Store) resetOnline() error {
 	tx, e := s.db.Begin()
 	if e != nil {
@@ -232,6 +246,7 @@ func (s *Store) resetOnline() error {
 	}
 	return tx.Commit()
 }
+// setStatus aprueba o revoca una cuenta y comprueba el límite de cuentas aprobadas.
 func (s *Store) setStatus(id, status string) error {
 	if status != "approved" && status != "revoked" {
 		return errors.New("estado inválido")
@@ -260,6 +275,7 @@ func (s *Store) setStatus(id, status string) error {
 	}
 	return tx.Commit()
 }
+// disconnect marca una sesión para que el supervisor del servidor la cierre.
 func (s *Store) disconnect(id string) error {
 	r, e := s.db.Exec("UPDATE clients SET disconnect_requested=1 WHERE id=?", id)
 	if e != nil {
@@ -271,10 +287,12 @@ func (s *Store) disconnect(id string) error {
 	}
 	return nil
 }
+// clearDisconnect limpia la solicitud temporal de desconexión.
 func (s *Store) clearDisconnect(id string) error {
 	_, e := s.db.Exec("UPDATE clients SET disconnect_requested=0 WHERE id=?", id)
 	return e
 }
+// deleteRow elimina mensajes asociados y conserva una lápida para impedir reutilizar la identidad.
 func deleteRow(tx *sql.Tx, u User) error {
 	if _, e := tx.Exec("INSERT OR REPLACE INTO deleted_clients(public,id,code,name) VALUES(?,?,?,?)", u.Public, u.ID, u.Code, u.Name); e != nil {
 		return e
@@ -285,6 +303,7 @@ func deleteRow(tx *sql.Tx, u User) error {
 	_, e := tx.Exec("DELETE FROM clients WHERE id=?", u.ID)
 	return e
 }
+// delete borra una cuenta dentro de una transacción y registra su estado eliminado.
 func (s *Store) delete(id string, final bool) error {
 	tx, e := s.db.Begin()
 	if e != nil {
@@ -308,6 +327,7 @@ func (s *Store) delete(id string, final bool) error {
 	}
 	return tx.Commit()
 }
+// recover reemplaza la clave pública de una cuenta pendiente usando una identidad nueva.
 func (s *Store) recover(id, public string) error {
 	if _, e := unb64(public, 32); e != nil {
 		return e
@@ -340,10 +360,12 @@ func (s *Store) recover(id, public string) error {
 	}
 	return tx.Commit()
 }
+// saveMessage persiste el contenido y sus metadatos antes de anunciar aceptación.
 func (s *Store) saveMessage(m Message) error {
 	_, e := s.db.Exec("INSERT INTO messages(message_id,sender,target,text,time) VALUES(?,?,?,?,?)", m.ID, m.Sender, m.Target, m.Text, m.Time)
 	return e
 }
+// history obtiene hasta 200 mensajes generales o vinculados al usuario.
 func (s *Store) history(id string) ([]Message, error) {
 	rows, e := s.db.Query(`SELECT m.message_id,m.sender,m.target,m.text,m.time,c.code,c.name FROM messages m JOIN clients c ON c.id=m.sender WHERE m.target='general' OR m.sender=? OR m.target=? ORDER BY m.seq DESC LIMIT 200`, id, id)
 	if e != nil {
@@ -363,6 +385,7 @@ func (s *Store) history(id string) ([]Message, error) {
 	}
 	return out, rows.Err()
 }
+// backup crea una copia SQLite coherente en la ruta indicada.
 func (s *Store) backup(path string) error {
 	if _, e := os.Stat(path); e == nil {
 		return errors.New("la copia ya existe")

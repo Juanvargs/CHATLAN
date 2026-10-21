@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 namespace chat {
+// Configura temporizadores, validación TLS y reacciones a eventos de red.
 Connection::Connection(Identity &value, QObject *parent) : QObject(parent), identity(value) {
     retry.setSingleShot(true); deadline.setSingleShot(true); heartbeat.setInterval(20000);
     connect(&retry,&QTimer::timeout,this,&Connection::connectSocket);
@@ -32,6 +33,7 @@ Connection::Connection(Identity &value, QObject *parent) : QObject(parent), iden
     });
     connect(&discovery,&QUdpSocket::readyRead,this,&Connection::readDiscovery);
 }
+// Carga el certificado de confianza e inicia búsqueda o conexión a una IP conocida.
 void Connection::start(const QString &address, quint16 tcpPort, const QString &certificate, const QString &label, quint16 udpPort) {
     stop(); host = address; port = tcpPort; name = label; discoveryPort = udpPort;
     auto cert = QSslCertificate(readFile(certificate)); if(cert.isNull()) throw std::runtime_error("Certificado inválido");
@@ -43,12 +45,14 @@ void Connection::start(const QString &address, quint16 tcpPort, const QString &c
     if(host.trimmed().isEmpty()) { emit status("Buscando servidor en la LAN…"); retry.start(3000); }
     else connectSocket();
 }
+// Envía la petición UDP de descubrimiento por broadcast y loopback.
 void Connection::discover() {
     discovery.close();
     if (!discovery.bind(QHostAddress::AnyIPv4,0)) return;
     discovery.writeDatagram("CHAT_LAN_DISCOVER_V1",QHostAddress::Broadcast,discoveryPort);
     discovery.writeDatagram("CHAT_LAN_DISCOVER_V1",QHostAddress::LocalHost,discoveryPort);
 }
+// Acepta respuestas del servicio cuya huella coincida con el certificado fijado.
 void Connection::readDiscovery() {
     while(discovery.hasPendingDatagrams()) {
         auto datagram = discovery.receiveDatagram(4096); auto data = QJsonDocument::fromJson(datagram.data()).object();
@@ -58,13 +62,14 @@ void Connection::readDiscovery() {
         discovery.close();
         if (address != host || newPort != port) {
             host = address; port = newPort; emit serverFound(host,port);
-            // Abort with reconnection suppressed, then make exactly one new attempt.
+            // Cierra sin disparar la reconexión automática y programa un solo intento nuevo.
             running = false; socket.abort(); running = true; retry.stop(); deadline.stop();
             QTimer::singleShot(100,this,[this] { if(running) connectSocket(); });
         }
         return;
     }
 }
+// Abre TLS al servidor y activa el tiempo límite de conexión.
 void Connection::connectSocket() {
     if(!running) return;
     if(host.trimmed().isEmpty()) { discover(); emit status("Buscando servidor en la LAN…"); retry.start(3000); return; }
@@ -72,12 +77,14 @@ void Connection::connectSocket() {
     decoder = Decoder{}; authenticated = false;
     emit status("Conectando…"); socket.connectToHostEncrypted(host,port); deadline.start(20000);
 }
+// Codifica y envía un evento solo por un socket cifrado y con cola acotada.
 void Connection::send(const QJsonObject &value) {
     if(!socket.isEncrypted()) throw std::runtime_error("Sin conexión cifrada");
     auto data = encode(value);
     if(socket.bytesToWrite()+data.size()>262144) throw std::runtime_error("Conexión saturada");
     if(socket.write(data)!=data.size()) throw std::runtime_error("No se pudo enviar");
 }
+// Procesa eventos entrantes, firma desafíos y actualiza el estado del cliente.
 void Connection::read() {
     try {
         while(socket.bytesAvailable()) for(auto packet : decoder.feed(socket.read(65536))) {

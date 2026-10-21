@@ -11,11 +11,13 @@
 
 namespace chat {
 template<class T, auto Free> using Ptr = std::unique_ptr<T, decltype(Free)>;
+// Codifica una clave OpenSSL en PEM para guardarla en el perfil.
 static QByteArray pem(EVP_PKEY *key) {
     Ptr<BIO, BIO_free> bio(BIO_new(BIO_s_mem()), BIO_free);
     if (!bio || !PEM_write_bio_PrivateKey(bio.get(), key, nullptr, nullptr, 0, nullptr, nullptr)) throw std::runtime_error("Error PEM");
     char *data; auto size = BIO_get_mem_data(bio.get(), &data); return QByteArray(data, size);
 }
+// Carga identity.key o genera y protege un par de claves Ed25519 nuevo.
 Identity::Identity(const QString &directory) {
     auto path = directory + "/identity.key";
     if (!QFile::exists(path)) {
@@ -28,11 +30,13 @@ Identity::Identity(const QString &directory) {
     key = Key(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr), EVP_PKEY_free);
     if (!key || EVP_PKEY_id(key.get()) != EVP_PKEY_ED25519) throw std::runtime_error("Identidad dañada: recuperación requerida");
 }
+// Devuelve la clave pública del perfil codificada en Base64.
 QString Identity::publicKey() const {
     unsigned char data[32]; size_t size = sizeof data;
     if (!EVP_PKEY_get_raw_public_key(key.get(), data, &size) || size != 32) throw std::runtime_error("Error clave pública");
     return QString::fromLatin1(QByteArray(reinterpret_cast<char*>(data), size).toBase64());
 }
+// Firma los bytes del desafío de acceso con la clave privada del perfil.
 QByteArray Identity::sign(const QByteArray &payload) const {
     Ptr<EVP_MD_CTX, EVP_MD_CTX_free> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
     QByteArray signature(64, '\0'); size_t size = 64;
@@ -41,6 +45,7 @@ QByteArray Identity::sign(const QByteArray &payload) const {
             reinterpret_cast<const unsigned char*>(payload.constData()), payload.size()) != 1) throw std::runtime_error("Error firma");
     signature.resize(size); return signature;
 }
+// Comprueba una firma Ed25519 usando la clave pública correspondiente.
 bool verify(const QString &publicKey, const QByteArray &payload, const QByteArray &signature) {
     auto raw = fromBase64(publicKey, 32);
     Key key(EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr, reinterpret_cast<const unsigned char*>(raw.constData()), raw.size()), EVP_PKEY_free);
@@ -49,14 +54,17 @@ bool verify(const QString &publicKey, const QByteArray &payload, const QByteArra
         EVP_DigestVerify(context.get(), reinterpret_cast<const unsigned char*>(signature.constData()), signature.size(),
             reinterpret_cast<const unsigned char*>(payload.constData()), payload.size()) == 1;
 }
+// Genera un nonce aleatorio para la autenticación.
 QString randomNonce() {
     QByteArray nonce(32, '\0'); if (RAND_bytes(reinterpret_cast<unsigned char*>(nonce.data()), nonce.size()) != 1) throw std::runtime_error("Error aleatorio");
     return QString::fromLatin1(nonce.toBase64());
 }
+// Calcula la huella SHA-256 del certificado TLS.
 QString certificateFingerprint(const QString &path) {
     QSslCertificate cert(readFile(path)); if (cert.isNull()) throw std::runtime_error("Certificado inválido");
     return QString::fromLatin1(cert.digest(QCryptographicHash::Sha256).toHex());
 }
+// Crea un certificado autofirmado y su clave privada si aún no existen.
 void initializeTls(const QString &directory) {
     privateDir(directory);
     if (QFile::exists(directory + "/server.pem") || QFile::exists(directory + "/server.key")) throw std::runtime_error("Certificado o clave existentes: no se reemplazan");

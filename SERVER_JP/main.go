@@ -15,6 +15,7 @@ import (
 	"syscall"
 )
 
+// serverSettings contiene las opciones persistentes de ejecución.
 type serverSettings struct {
 	Host          string `json:"host"`
 	Port          int    `json:"port"`
@@ -23,6 +24,7 @@ type serverSettings struct {
 	AutoApprove   *bool  `json:"auto_approve"`
 }
 
+// readServerSettings carga settings.json; si no existe, deja que se usen los valores predeterminados.
 func readServerSettings(dir string) (serverSettings, error) {
 	var settings serverSettings
 	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -38,6 +40,7 @@ func readServerSettings(dir string) (serverSettings, error) {
 	return settings, nil
 }
 
+// defaultDir respeta XDG_DATA_HOME y usa ~/.local/share cuando no está definido.
 func defaultDir() string {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
@@ -46,12 +49,14 @@ func defaultDir() string {
 	}
 	return filepath.Join(base, "chat-lan-go", "server")
 }
+// main convierte los errores de run en un mensaje y un código de salida distinto de cero.
 func main() {
 	if e := run(os.Args[1:]); e != nil {
 		fmt.Fprintln(os.Stderr, "Error:", e)
 		os.Exit(1)
 	}
 }
+// run interpreta el subcomando y ejecuta el servidor o una operación administrativa.
 func run(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("uso: chat-lan-go server|init|list|fingerprint|approve|revoke|disconnect|delete|recover|backup [opciones]")
@@ -71,6 +76,7 @@ func run(args []string) error {
 	tail := fs.Args()
 	switch action {
 	case "init":
+		// Inicializa la identidad TLS y crea una base SQLite vacía.
 		fp, e := initializeTLS(*dir, strings.Split(*hosts, ","))
 		if e != nil {
 			return e
@@ -83,12 +89,14 @@ func run(args []string) error {
 		fmt.Println("Huella SHA-256:", fp)
 		return nil
 	case "fingerprint":
+		// Calcula la huella del certificado para compararla con la que usa el cliente.
 		_, fp, e := loadTLS(*dir)
 		if e == nil {
 			fmt.Println(fp)
 		}
 		return e
 	case "server":
+		// Combina configuración y banderas antes de abrir TLS, SQLite y los sockets.
 		if len(tail) != 0 {
 			return fmt.Errorf("argumentos inesperados")
 		}
@@ -97,6 +105,7 @@ func run(args []string) error {
 			return err
 		}
 		provided := map[string]bool{}
+		// Solo reemplaza valores predeterminados de banderas que el usuario no indicó.
 		fs.Visit(func(f *flag.Flag) { provided[f.Name] = true })
 		if !provided["host"] && settings.Host != "" {
 			*host = settings.Host
@@ -128,6 +137,7 @@ func run(args []string) error {
 			}
 		}
 		if *initTLS {
+			// Permite crear certificados en el primer arranque sin sobrescribir identidad existente.
 			_, certErr := os.Stat(filepath.Join(*dir, "server.pem"))
 			_, keyErr := os.Stat(filepath.Join(*dir, "server.key"))
 			if os.IsNotExist(certErr) && os.IsNotExist(keyErr) {
@@ -156,11 +166,13 @@ func run(args []string) error {
 		}
 		log.Printf("Chat LAN Go: %s:%d UDP %d", *host, sv.port, *udpPort)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		// Mantiene el proceso activo hasta recibir Ctrl+C o la señal de terminación del servicio.
 		defer stop()
 		<-ctx.Done()
 		sv.stop()
 		return nil
 	case "list", "approve", "revoke", "disconnect", "delete", "recover", "backup":
+		// Ejecuta operaciones administrativas directamente sobre la base del servidor.
 		store, e := openStore(filepath.Join(*dir, "clients.sqlite3"), false)
 		if e != nil {
 			return e

@@ -10,6 +10,7 @@
 
 static volatile std::sig_atomic_t stopRequested = 0;
 static void signalHandler(int) { stopRequested = 1; }
+// Lee opciones y mantiene activo el servidor C++ alternativo.
 int main(int argc, char **argv) {
     QCoreApplication app(argc,argv); QCoreApplication::setApplicationName("Chat LAN C++ Server");
     QCommandLineParser parser; parser.addHelpOption();

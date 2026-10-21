@@ -18,7 +18,9 @@ import (
 	"time"
 )
 
+// privateDir crea el directorio de datos con permisos privados cuando no existe.
 func privateDir(path string) error { return os.MkdirAll(path, 0700) }
+// writeNew crea un archivo secreto sin reemplazar uno que ya exista.
 func writeNew(path string, data []byte) error {
 	f, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if e != nil {
@@ -28,6 +30,7 @@ func writeNew(path string, data []byte) error {
 	_, e = f.Write(data)
 	return e
 }
+// initializeTLS crea certificado autofirmado ECDSA y guarda clave privada y certificado público.
 func initializeTLS(dir string, hosts []string) (string, error) {
 	if e := privateDir(dir); e != nil {
 		return "", e
@@ -73,6 +76,7 @@ func initializeTLS(dir string, hosts []string) (string, error) {
 	sum := sha256.Sum256(der)
 	return hex.EncodeToString(sum[:]), nil
 }
+// loadTLS carga el par de archivos y devuelve TLS 1.2+ junto con la huella SHA-256.
 func loadTLS(dir string) (*tls.Config, string, error) {
 	cert, e := tls.LoadX509KeyPair(filepath.Join(dir, "server.pem"), filepath.Join(dir, "server.key"))
 	if e != nil {
